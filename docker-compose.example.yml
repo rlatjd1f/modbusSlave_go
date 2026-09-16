@@ -1,0 +1,33 @@
+# 여러 slave 를 동시에 띄우는 예시. 컨테이너 1개 = slave 1개.
+services:
+  # 기본 설정: 레지스터 1000개, Unit ID 1, FC03
+  slave-default:
+    image: modbus-slave
+    build: .
+    command: ["--port", "5020"]
+    ports: ["5020:5020"]
+    restart: unless-stopped
+
+  # 레지스터 5000개
+  slave-large:
+    image: modbus-slave
+    command: ["--port", "5020", "--registers", "5000"]
+    ports: ["5021:5020"]
+    restart: unless-stopped
+
+  # Unit ID 2, Input Register(FC04) 응답
+  slave-fc04:
+    image: modbus-slave
+    command: ["--port", "5020", "--unit-id", "2", "--function-code", "4"]
+    ports: ["5022:5020"]
+    restart: unless-stopped
+
+  # FC03 + FC04 동시 활성, 환경변수 방식
+  slave-env:
+    image: modbus-slave
+    environment:
+      MODBUS_PORT: "5020"
+      MODBUS_REGISTERS: "200"
+      MODBUS_FUNCTION_CODE: "3,4"
+    ports: ["5023:5020"]
+    restart: unless-stopped

@@ -1,0 +1,43 @@
+# 배포용 예시. 설계 근거는 PLAN.md §10 참고.
+#
+# 사전 작업 — docker-proxy 제거 (슬레이브 20개 기준 60~200MB 절약):
+#   /etc/docker/daemon.json 에 아래를 넣고 systemctl restart docker
+#   { "userland-proxy": false }
+#
+# network_mode: host 로 바꾸지 말 것. 표준 포트 502 를 열 수 없게 된다
+# (컨테이너 netns 는 ip_unprivileged_port_start=0 이지만 호스트 netns 는 1024).
+# 굳이 쓴다면 cap_add: [NET_BIND_SERVICE] 를 함께 준다.
+
+x-slave: &slave
+  image: modbus-slave
+  restart: unless-stopped
+  # 실측 9.24MiB(2 vCPU) / 15.22MiB(무제한) 대비 2~3배 여유.
+  mem_limit: 32m
+  # info 레벨에서는 로그가 거의 늘지 않지만, debug 로 디버깅할 때를 위한 상한.
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  # ulimits 는 지정하지 않는다. 컨테이너 기본 soft nofile 이 1,048,576 이라
+  # 65536 을 지정하면 오히려 16배 낮아진다.
+
+services:
+  slave-01:
+    <<: *slave
+    command: ["--port", "5020"]
+    ports: ["5020:5020"]
+
+  slave-02:
+    <<: *slave
+    command: ["--port", "5020", "--registers", "5000"]
+    ports: ["5021:5020"]
+
+  slave-03:
+    <<: *slave
+    command: ["--port", "5020", "--unit-id", "2", "--function-code", "3,4"]
+    ports: ["5022:5020"]
+
+# vCPU 가 2개보다 많은 인스턴스에 올린다면 GOMAXPROCS 를 고정하기 위해
+# 컨테이너마다 아래를 추가한다 (2 vCPU 인스턴스에서는 불필요).
+#   cpus: 0.5
