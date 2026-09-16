@@ -80,24 +80,28 @@ docker image ls modbus-slave
 슬레이브 20개짜리 compose 파일을 생성한다.
 
 ```bash
-./scripts/gen-compose.sh 20 5020 > docker-compose.yml
+./scripts/gen-compose.sh 20 502 > docker-compose.yml
 docker compose up -d
 ```
 
 - `20` — 슬레이브 개수
-- `5020` — 시작 호스트 포트 (5020 ~ 5039 사용)
+- `502` — 시작 호스트 포트. 생략하면 502 가 기본값이다 (502 ~ 521 사용)
 - 컨테이너 내부 포트는 전부 5020 이고 호스트 포트만 다르게 매핑된다
+
+**502~521 은 1024 미만이지만 문제없다.** 호스트 쪽 바인딩은 root 로 도는 dockerd 가
+하고, 컨테이너 안의 프로세스는 계속 5020 을 연다. 비특권 uid(65534)가 저번호 포트를
+건드릴 일이 없도록 내부 포트를 5020 으로 고정해 둔 구조다.
 
 개수나 레지스터 수를 바꾸려면:
 
 ```bash
-REGS=2000 MAXCONNS=512 ./scripts/gen-compose.sh 40 5020 > docker-compose.yml
+REGS=2000 MAXCONNS=512 ./scripts/gen-compose.sh 40 502 > docker-compose.yml
 ```
 
 컨테이너 하나만 띄워 볼 때는 compose 없이도 된다.
 
 ```bash
-docker run -d -p 5020:5020 --restart unless-stopped --memory 32m \
+docker run -d -p 502:5020 --restart unless-stopped --memory 32m \
   modbus-slave --port 5020 --registers 1000
 ```
 
@@ -116,9 +120,17 @@ docker compose ps
 # 20개 모두 healthy 인지
 docker compose ps --format '{{.Name}} {{.Status}}' | grep -c healthy
 
+# 포트 매핑 확인 — 0.0.0.0:502->5020/tcp 형태여야 한다
+docker compose ps --format '{{.Name}}\t{{.Ports}}'
+
 # 외부에서 실제 응답 확인 (mbpoll)
-mbpoll -m tcp -a 1 -r 1 -c 10 -p 5020 <서버 IP>
+mbpoll -m tcp -a 1 -r 1 -c 10 -p 502 <서버 IP>
 ```
+
+> `ss -ltnp | grep 502` 로는 **아무것도 보이지 않는다.** §2 에서 `userland-proxy` 를
+> 껐기 때문에 호스트에 리스닝 프로세스 없이 iptables DNAT 로만 처리된다.
+> 고장이 아니므로 이걸로 판단하지 말고 위 `docker compose ps` 를 쓴다.
+> 굳이 커널 쪽을 보려면 `sudo iptables -t nat -S DOCKER | grep -c 5020`.
 
 `mbpoll` 이 없으면 아무 마스터 도구나 쓰면 된다. 기대값은 **레지스터 전부 0** 이다.
 
@@ -136,7 +148,7 @@ docker compose logs --tail 3 slave-01
 | 항목 | 값 |
 |---|---|
 | 프로토콜 | Modbus TCP |
-| 포트 | 5020 ~ 5039 (슬레이브당 1개) |
+| 포트 | **502 ~ 521** (슬레이브당 1개, 표준 Modbus 포트부터) |
 | Unit ID | **1** (다른 값으로 보내면 **응답이 오지 않는다**) |
 | 함수 코드 | **FC03** (Read Holding Registers). 다른 코드는 예외 0x01 |
 | 레지스터 주소 | 0 ~ 999 |
@@ -160,7 +172,7 @@ docker compose logs --tail 3 slave-01
 ```bash
 # 20개 슬레이브에 각각 50 커넥션, 1초마다 1000 레지스터 스캔, 60초
 SERVER=10.0.0.10
-TARGETS=$(seq 5020 5039 | sed "s/^/$SERVER:/" | paste -sd, -)
+TARGETS=$(seq 502 521 | sed "s/^/$SERVER:/" | paste -sd, -)
 make load TARGETS=$TARGETS CONNS=50 SECS=60
 ```
 
@@ -218,7 +230,7 @@ docker compose up -d          # 바뀐 이미지로 재생성
 남기므로 커넥션이 많으면 로그가 빠르게 쌓인다.
 
 ```bash
-docker run -d -p 5020:5020 modbus-slave --port 5020 --log-level debug
+docker run -d -p 502:5020 modbus-slave --port 5020 --log-level debug
 ```
 
 **서버 재부팅** 시에는 `restart: unless-stopped` 와 `systemctl enable docker` 로
@@ -229,8 +241,8 @@ docker run -d -p 5020:5020 modbus-slave --port 5020 --log-level debug
 ## 9. 방화벽 / 보안 그룹
 
 ```
-인바운드 TCP 5020-5039  <- 마스터 쪽 CIDR 만 허용
-인바운드 TCP 22         <- 관리 접속
+인바운드 TCP 502-521  <- 마스터 쪽 CIDR 만 허용
+인바운드 TCP 22       <- 관리 접속
 ```
 
 AWS 보안 그룹이든 `firewalld` 든 **소스를 마스터 대역으로 제한**한다.
@@ -250,14 +262,59 @@ AWS 보안 그룹이든 `firewalld` 든 **소스를 마스터 대역으로 제�
 
 ---
 
-## 11. 체크리스트
+## 11. 트러블슈팅
+
+### 이미지 빌드 중 `network is unreachable` (IPv6)
+
+```
+dial tcp [2600:1f18:...]:443: connect: network is unreachable
+```
+
+Docker Hub 가 IPv6 주소로 응답했는데 인스턴스에 IPv6 경로가 없을 때 난다.
+AWS 에서 서브넷에 IPv6 가 붙어 있고 egress-only 게이트웨이가 없으면 재현된다.
+IPv4 는 멀쩡하기 때문에 일부 blob 요청만 실패하는 형태로 나타난다.
+
+```bash
+printf 'net.ipv6.conf.all.disable_ipv6 = 1\nnet.ipv6.conf.default.disable_ipv6 = 1\n' | sudo tee /etc/sysctl.d/99-disable-ipv6.conf
+sudo sysctl --system
+sudo systemctl restart docker
+```
+
+Go 로 작성된 dockerd 는 기동 시 IPv6 지원 여부를 확인하고, 스택이 꺼져 있으면
+AAAA 주소를 시도하지 않는다. **데몬 재시작까지 해야 적용된다.**
+적용 확인: `cat /proc/sys/net/ipv6/conf/all/disable_ipv6` 가 `1`.
+
+### `permission denied ... /var/run/docker.sock`
+
+docker 그룹이 아직 세션에 적용되지 않았다. SSH 를 끊고 다시 접속한다.
+
+```bash
+id -nG | tr ' ' '\n' | grep -x docker
+```
+
+`docker` 가 출력되지 않으면 재접속이 필요하다.
+
+### 여러 줄 명령을 붙여넣을 때
+
+`set -e` 를 대화형 셸에 붙여넣지 말 것. 명령 하나만 실패해도 **로그인 셸 자체가
+종료되어 SSH 세션이 끊긴다.** 스크립트 파일에서만 쓴다.
+붙여넣기용으로는 `&&` 로 연결한 한 줄을 쓴다.
+
+### 포트가 열렸는지 `ss` 로 확인되지 않음
+
+정상이다. §5 의 설명 참조.
+
+---
+
+## 12. 체크리스트
 
 - [ ] Docker 설치 및 `usermod` 후 재접속
 - [ ] `/etc/docker/daemon.json` 에 `userland-proxy: false`, Docker 재시작
 - [ ] `git clone` 후 `docker build -t modbus-slave .`
-- [ ] `./scripts/gen-compose.sh 20 5020 > docker-compose.yml`
+- [ ] `./scripts/gen-compose.sh 20 502 > docker-compose.yml`
 - [ ] `docker compose up -d` 후 20개 전부 `healthy`
-- [ ] 보안 그룹에 5020-5039 개방 (소스 제한)
+- [ ] `docker compose ps` 로 `0.0.0.0:502->5020/tcp` 매핑 확인
+- [ ] 보안 그룹에 502-521 개방 (소스 제한)
 - [ ] 마스터가 **Unit ID 1 / FC03 / 125개 단위 분할**로 보내는지 확인
 - [ ] 별도 장비에서 `make load` 실행, 주기 초과 0 확인
 - [ ] `docker stats` 로 CPU·메모리가 기준값 범위인지 확인

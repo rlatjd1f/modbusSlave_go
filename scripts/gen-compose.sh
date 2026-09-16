@@ -1,10 +1,14 @@
 #!/bin/sh
 # 슬레이브 N개짜리 compose 파일을 만든다.
 # usage: ./scripts/gen-compose.sh [개수] [시작 호스트 포트] > docker-compose.yml
+#
+# 호스트 포트는 Modbus 표준 포트 502 부터 할당한다. 1024 미만이지만 호스트 쪽
+# 바인딩은 root 로 도는 dockerd 가 하므로 문제없다. 컨테이너 내부 포트는 항상
+# 5020 으로 고정되어 비특권 uid(65534) 가 저번호 포트를 열 일이 없다.
 set -eu
 
 COUNT="${1:-20}"
-START="${2:-5020}"
+START="${2:-502}"
 REGS="${REGS:-1000}"
 MAXCONNS="${MAXCONNS:-256}"
 MEMLIMIT="${MEMLIMIT:-32m}"
