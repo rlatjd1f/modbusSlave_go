@@ -16,6 +16,16 @@ docker build -t modbus-slave .
 docker run -d -p 5020:5020 modbus-slave --port 5020
 ```
 
+여러 개를 한 번에 띄울 때는 포트 범위를 주면 된다. 이미지 빌드부터 healthy 대기까지
+알아서 처리한다.
+
+```bash
+./slave.sh up 502-521      # 슬레이브 20개
+./slave.sh ps              # 상태
+./slave.sh restart         # 전체 재시작
+./slave.sh down            # 전체 중지
+```
+
 ```bash
 mbpoll -m tcp -a 1 -r 1 -c 10 -p 5020 127.0.0.1
 ```
@@ -101,7 +111,8 @@ docker run -d -p 5024:5024 \
 docker compose -f docker-compose.example.yml up -d
 ```
 
-배포용(메모리 상한 / 로그 로테이션 적용)은 [docker-compose.deploy.yml](docker-compose.deploy.yml),
+`slave.sh` 가 만들어 주는 compose 파일은 메모리 상한과 로그 로테이션이 적용된
+배포용 설정이다([docker-compose.deploy.yml](docker-compose.deploy.yml) 과 동일한 형태).
 인스턴스 사이징 근거는 [PLAN.md](PLAN.md) §10 참고.
 
 > 502 같은 특권 포트는 컨테이너 내부에서 쓰지 않고 `-p 502:5020` 으로 매핑한다.

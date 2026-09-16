@@ -77,53 +77,63 @@ docker image ls modbus-slave
 
 ## 4. 슬레이브 기동
 
-슬레이브 20개짜리 compose 파일을 생성한다.
+`slave.sh` 에 **포트 범위**를 주면 그만큼 컨테이너를 띄운다.
+이미지가 없으면 알아서 빌드하고, 전부 healthy 가 될 때까지 기다린다.
 
 ```bash
-./scripts/gen-compose.sh 20 502 > docker-compose.yml
-docker compose up -d
+./slave.sh up 502-521
 ```
 
-- `20` — 슬레이브 개수
-- `502` — 시작 호스트 포트. 생략하면 502 가 기본값이다 (502 ~ 521 사용)
+```
+==> 슬레이브 20개 기동 (호스트 포트 502~521 -> 컨테이너 5020)
+==> healthy: 20 / 20
+```
+
 - 컨테이너 내부 포트는 전부 5020 이고 호스트 포트만 다르게 매핑된다
+- 범위를 줄여서 다시 실행하면 남는 컨테이너는 자동으로 정리된다
+- 포트 하나만 띄우려면 `./slave.sh up 502`
 
 **502~521 은 1024 미만이지만 문제없다.** 호스트 쪽 바인딩은 root 로 도는 dockerd 가
 하고, 컨테이너 안의 프로세스는 계속 5020 을 연다. 비특권 uid(65534)가 저번호 포트를
 건드릴 일이 없도록 내부 포트를 5020 으로 고정해 둔 구조다.
 
-개수나 레지스터 수를 바꾸려면:
+레지스터 수나 커넥션 상한은 환경변수로 바꾼다.
 
 ```bash
-REGS=2000 MAXCONNS=512 ./scripts/gen-compose.sh 40 502 > docker-compose.yml
+REGS=2000 MAXCONNS=512 ./slave.sh up 502-541
 ```
 
-컨테이너 하나만 띄워 볼 때는 compose 없이도 된다.
+| 환경변수 | 기본값 | 의미 |
+|---|---|---|
+| `REGS` | `1000` | 슬레이브당 레지스터 개수 |
+| `MAXCONNS` | `256` | 슬레이브당 동시 접속 상한 |
+| `MEMLIMIT` | `32m` | 컨테이너 메모리 상한 |
+| `IMAGE` | `modbus-slave` | 사용할 이미지 이름 |
 
-```bash
-docker run -d -p 502:5020 --restart unless-stopped --memory 32m \
-  modbus-slave --port 5020 --registers 1000
-```
+`slave.sh` 는 내부적으로 `scripts/gen-compose.sh` 로 `docker-compose.yml` 을 만든다.
+compose 파일만 필요하면 그쪽을 직접 써도 된다.
 
 ---
 
 ## 5. 동작 확인
 
-```bash
-docker compose ps
-```
-
 `STATUS` 가 전부 `Up ... (healthy)` 가 되어야 한다. healthcheck 는 슬레이브가
 자기 설정대로 자신에게 FC03 질의를 보내 확인한다.
 
 ```bash
-# 20개 모두 healthy 인지
-docker compose ps --format '{{.Name}} {{.Status}}' | grep -c healthy
+./slave.sh ps
+```
 
-# 포트 매핑 확인 — 0.0.0.0:502->5020/tcp 형태여야 한다
-docker compose ps --format '{{.Name}}\t{{.Ports}}'
+```
+NAME                      STATUS                   PORTS
+modbus_slave-slave-01-1   Up 5 seconds (healthy)   0.0.0.0:502->5020/tcp
+...
+==> healthy: 20 / 20
+```
 
-# 외부에서 실제 응답 확인 (mbpoll)
+외부에서 실제 응답 확인:
+
+```bash
 mbpoll -m tcp -a 1 -r 1 -c 10 -p 502 <서버 IP>
 ```
 
@@ -211,20 +221,23 @@ Graviton 은 이보다 2~2.5배 높게 나올 것으로 예상한다. 실제 값
 ## 8. 운영
 
 ```bash
-docker compose ps                      # 상태
-docker compose logs -f slave-01        # 로그 (info 레벨은 기동 줄 1개뿐)
-docker compose restart slave-01        # 개별 재시작
-docker compose down                    # 전체 중지
-docker compose up -d                   # 전체 기동
+./slave.sh ps                 # 상태 + healthy 개수
+./slave.sh restart            # 전체 재시작
+./slave.sh restart slave-03   # 하나만 재시작
+./slave.sh logs slave-03      # 로그 (info 레벨은 기동 줄 1개뿐)
+./slave.sh down               # 전체 중지 및 삭제
+./slave.sh up 502-521         # 다시 기동
 ```
 
-**코드 갱신**
+**코드 갱신** — git pull, 재빌드, 반영을 한 번에 한다.
 
 ```bash
-git pull
-docker build -t modbus-slave .
-docker compose up -d          # 바뀐 이미지로 재생성
+./slave.sh update
 ```
+
+> `./slave.sh restart` 는 기존 컨테이너를 그대로 재시작하므로 **이미지를 새로
+> 빌드했거나 포트 범위를 바꿨다면 반영되지 않는다.** 그럴 때는 `./slave.sh update`
+> 나 `./slave.sh up <범위>` 를 쓴다.
 
 **디버깅이 필요할 때만** 로그 레벨을 올린다. `debug` 는 커넥션 수립/종료를 전부
 남기므로 커넥션이 많으면 로그가 빠르게 쌓인다.
@@ -311,9 +324,8 @@ id -nG | tr ' ' '\n' | grep -x docker
 - [ ] Docker 설치 및 `usermod` 후 재접속
 - [ ] `/etc/docker/daemon.json` 에 `userland-proxy: false`, Docker 재시작
 - [ ] `git clone` 후 `docker build -t modbus-slave .`
-- [ ] `./scripts/gen-compose.sh 20 502 > docker-compose.yml`
-- [ ] `docker compose up -d` 후 20개 전부 `healthy`
-- [ ] `docker compose ps` 로 `0.0.0.0:502->5020/tcp` 매핑 확인
+- [ ] `./slave.sh up 502-521` 후 `healthy: 20 / 20`
+- [ ] `./slave.sh ps` 로 `0.0.0.0:502->5020/tcp` 매핑 확인
 - [ ] 보안 그룹에 502-521 개방 (소스 제한)
 - [ ] 마스터가 **Unit ID 1 / FC03 / 125개 단위 분할**로 보내는지 확인
 - [ ] 별도 장비에서 `make load` 실행, 주기 초과 0 확인
