@@ -200,8 +200,31 @@ make load TARGETS=$TARGETS CONNS=50 SECS=60
 슬레이브 쪽 네트워크와 커넥션 수는 서버에서 본다.
 
 ```bash
-./slave.sh net        # 5초 샘플
+./slave.sh net        # 5초 샘플, 1회 출력
 ./slave.sh net 10     # 10초 샘플
+./slave.sh top        # CPU/메모리/아웃바운드 실시간 갱신 (Ctrl+C 로 종료)
+./slave.sh top 5      # 5초 간격
+```
+
+`top` 은 부하를 거는 동안 띄워 두고 보는 용도다.
+
+```
+  CONTAINER                       CPU          MEM            OUT
+  ------------------------------------------------------------
+  modbus_slave-slave-01-1       0.58%     5.277MiB      0.86 Mbps
+  modbus_slave-slave-02-1       0.54%      7.27MiB      0.86 Mbps
+  modbus_slave-slave-03-1       0.48%     5.246MiB      0.69 Mbps
+  합계                          1.60%      17.8MiB      2.41 Mbps
+                                0.016 vCPU
+  ------------------------------------------------------------
+  19:30:11   갱신 3s   Ctrl+C 로 종료
+```
+
+`docker stats` 로도 CPU 와 메모리는 실시간으로 볼 수 있다. 다만 `NET I/O` 가
+누적값이라 전송률은 보이지 않는다.
+
+```bash
+docker stats --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}'
 ```
 
 ```
@@ -251,6 +274,7 @@ Graviton 은 이보다 2~2.5배 높게 나올 것으로 예상한다. 실제 값
 ```bash
 ./slave.sh ps                 # 상태 + healthy 개수
 ./slave.sh net                # 아웃바운드 전송률(Mbps) + 커넥션 수
+./slave.sh top                # CPU/메모리/아웃바운드 실시간 갱신
 ./slave.sh restart            # 전체 재시작
 ./slave.sh restart slave-03   # 하나만 재시작
 ./slave.sh logs slave-03      # 로그 (info 레벨은 기동 줄 1개뿐)

@@ -353,7 +353,7 @@ modbus_slave/
 ├── internal/server/               리스너, 커넥션 수명, 요청 루프
 ├── internal/health/               healthcheck 모드
 ├── internal/state/                실효 설정 상태 파일
-├── slave.sh                       운영 진입점 (up/ps/net/restart/logs/down/update)
+├── slave.sh                       운영 진입점 (up/ps/net/top/restart/logs/down/update)
 ├── scripts/gen-compose.sh         포트 범위만큼 compose 생성
 ├── scripts/probe.go               단발 요청 확인용 최소 클라이언트
 ├── scripts/poll.go                §7.3 폴링 워크로드 재현 (make load)

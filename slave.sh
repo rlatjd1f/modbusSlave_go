@@ -9,6 +9,8 @@
 #   ./slave.sh logs slave-03     로그 따라가기
 #   ./slave.sh net               아웃바운드 전송률(Mbps) + 커넥션 수 (기본 5초 샘플)
 #   ./slave.sh net 10            10초 샘플
+#   ./slave.sh top               CPU/메모리/아웃바운드 실시간 갱신 (Ctrl+C 로 종료)
+#   ./slave.sh top 5             5초 간격
 #   ./slave.sh down              전체 중지 및 삭제
 #   ./slave.sh build             이미지 재빌드
 #   ./slave.sh update            git pull + 재빌드 + 반영
@@ -171,6 +173,61 @@ cmd_net() {
 	printf "  %-28s %s\n" "합계" "$total"
 }
 
+# CPU / 메모리 / 아웃바운드를 한 화면에서 주기적으로 갱신한다.
+# docker stats 의 NET I/O 가 누적값이라 매 주기 두 번 재서 차이를 Mbps 로 환산한다.
+cmd_top() {
+	need_compose
+	INT="${1:-3}"
+	is_num "$INT" && [ "$INT" -ge 1 ] || die "갱신 간격은 1 이상의 정수여야 합니다: '$INT'"
+
+	trap 'printf "\n"; exit 0' INT TERM
+
+	while :; do
+		names=$(dc ps --format '{{.Name}}' 2>/dev/null || true)
+		if [ -z "$names" ]; then
+			echo "실행 중인 컨테이너가 없습니다."
+			sleep "$INT"
+			continue
+		fi
+		# shellcheck disable=SC2086
+		a=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}}' $names 2>/dev/null || true)
+		sleep "$INT"
+		# shellcheck disable=SC2086
+		b=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}} {{.CPUPerc}} {{.MemUsage}}' $names 2>/dev/null || true)
+		[ -n "$a" ] && [ -n "$b" ] || continue
+
+		out=$(printf '%s\n%s\n' "$a" "$b" | awk -v n="$(echo "$a" | wc -l)" -v t="$INT" '
+		function tob(s,   v, u) {
+			v = s + 0; u = s; sub(/^[0-9.]+/, "", u)
+			if (u == "kB") return v * 1000
+			if (u == "MB") return v * 1000000
+			if (u == "GB") return v * 1000000000
+			return v
+		}
+		NR <= n { t0[$1] = tob($4); next }
+		{
+			# $4 송신 누적, $5 CPU%, $6 메모리
+			mbps = (tob($4) - t0[$1]) / t * 8 / 1000000
+			cpu = $5 + 0
+			mem = $6
+			printf "  %-26s %7.2f%% %12s %9.2f Mbps\n", $1, cpu, mem, mbps
+			scpu += cpu; smbps += mbps
+			split(mem, m, "MiB"); smem += m[1]
+		}
+		END {
+			printf "  %-28s %7.2f%% %9.1fMiB %9.2f Mbps\n", "합계", scpu, smem, smbps
+			printf "  %-26s %7.3f vCPU\n", "", scpu / 100
+		}')
+
+		clear 2>/dev/null || printf '\033[H\033[2J'
+		printf '  %-26s %8s %12s %14s\n' "CONTAINER" "CPU" "MEM" "OUT"
+		printf '  %s\n' "------------------------------------------------------------"
+		printf '%s\n' "$out"
+		printf '  %s\n' "------------------------------------------------------------"
+		printf '  %s   갱신 %ss   Ctrl+C 로 종료\n' "$(date '+%H:%M:%S')" "$INT"
+	done
+}
+
 cmd_build() {
 	echo "==> 이미지 빌드"
 	docker build -t "$IMAGE" .
@@ -197,6 +254,7 @@ case "$CMD" in
 up) cmd_up "$@" ;;
 ps | status) cmd_ps ;;
 net) cmd_net "$@" ;;
+top) cmd_top "$@" ;;
 restart)
 	need_compose
 	dc restart "$@"
