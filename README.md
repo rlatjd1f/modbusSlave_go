@@ -22,6 +22,7 @@ docker run -d -p 5020:5020 modbus-slave --port 5020
 ```bash
 ./slave.sh up 502-521      # 슬레이브 20개
 ./slave.sh ps              # 상태
+./slave.sh net             # 네트워크 전송률 + 커넥션 수
 ./slave.sh restart         # 전체 재시작
 ./slave.sh down            # 전체 중지
 ```
