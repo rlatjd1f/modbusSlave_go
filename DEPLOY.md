@@ -205,20 +205,22 @@ make load TARGETS=$TARGETS CONNS=50 SECS=60
 ```
 
 ```
-==> 네트워크 전송률 (5초 샘플)
-  modbus_slave-slave-01-1    RX 22.8 kB/s    TX 78.0 kB/s       0.8 Mbps
-  ...
-  합계                       RX 102.4 kB/s   TX 351.0 kB/s      3.6 Mbps
+==> 아웃바운드 전송률 (5초 샘플)
+  modbus_slave-slave-01-1        0.73 Mbps
+  modbus_slave-slave-02-1        0.73 Mbps
+  modbus_slave-slave-03-1        0.83 Mbps
+  modbus_slave-slave-04-1        0.62 Mbps
+  합계                           2.91 Mbps
 ==> 확립된 커넥션 수
   modbus_slave-slave-01-1    50
   ...
   합계                       200
 ```
 
+- **아웃바운드(TX)만** 표시한다. 슬레이브는 12바이트 요청을 받고 259바이트 응답을
+  보내므로 나가는 쪽이 지배적이고, 인스턴스 대역폭 산정에도 이쪽이 기준이 된다.
 - `docker stats` 의 `NET I/O` 는 **컨테이너 시작 이후 누적값**이라 그대로는 전송률이
   아니다. 이 명령은 두 번 재서 차이를 낸다.
-- TX 가 RX 의 3~4배인 것이 정상이다. 요청은 12바이트지만 125개 레지스터 응답은
-  259바이트다.
 - 커넥션 수는 마스터가 실제로 몇 개를 붙였는지 확인할 때 쓴다. 이미지가 `scratch` 라
   `docker exec` 로는 `ss` 를 쓸 수 없어, 호스트의 `ss` 를 컨테이너 네트워크
   네임스페이스에 넣어 실행한다. 이 부분에는 `sudo` 가 필요하며 스크립트가 알아서 붙인다.
@@ -248,7 +250,7 @@ Graviton 은 이보다 2~2.5배 높게 나올 것으로 예상한다. 실제 값
 
 ```bash
 ./slave.sh ps                 # 상태 + healthy 개수
-./slave.sh net                # 네트워크 전송률 + 커넥션 수
+./slave.sh net                # 아웃바운드 전송률(Mbps) + 커넥션 수
 ./slave.sh restart            # 전체 재시작
 ./slave.sh restart slave-03   # 하나만 재시작
 ./slave.sh logs slave-03      # 로그 (info 레벨은 기동 줄 1개뿐)

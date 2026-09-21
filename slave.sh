@@ -7,7 +7,7 @@
 #   ./slave.sh restart           전체 재시작
 #   ./slave.sh restart slave-03  하나만 재시작
 #   ./slave.sh logs slave-03     로그 따라가기
-#   ./slave.sh net               네트워크 전송률 + 커넥션 수 (기본 5초 샘플)
+#   ./slave.sh net               아웃바운드 전송률(Mbps) + 커넥션 수 (기본 5초 샘플)
 #   ./slave.sh net 10            10초 샘플
 #   ./slave.sh down              전체 중지 및 삭제
 #   ./slave.sh build             이미지 재빌드
@@ -116,8 +116,9 @@ cmd_ps() {
 	echo "==> healthy: $(dc ps --format '{{.Status}}' | grep -c healthy || true) / $(dc ps --format '{{.Name}}' | grep -c . || true)"
 }
 
-# 누적 NetIO 를 두 번 재서 초당 전송률로 환산한다.
+# 누적 NetIO 를 두 번 재서 아웃바운드(TX) 전송률을 Mbps 로 환산한다.
 # docker stats 의 NET I/O 는 컨테이너 시작 이후 누적값이라 그대로는 전송률이 아니다.
+# 슬레이브는 요청 12바이트를 받고 응답 259바이트를 보내므로 아웃바운드가 지배적이다.
 cmd_net() {
 	need_compose
 	INT="${1:-5}"
@@ -126,7 +127,7 @@ cmd_net() {
 	names=$(dc ps --format '{{.Name}}')
 	[ -n "$names" ] || die "실행 중인 컨테이너가 없습니다."
 
-	echo "==> 네트워크 전송률 (${INT}초 샘플)"
+	echo "==> 아웃바운드 전송률 (${INT}초 샘플)"
 	# shellcheck disable=SC2086
 	a=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}}' $names)
 	sleep "$INT"
@@ -141,21 +142,14 @@ cmd_net() {
 		if (u == "GB") return v * 1000000000
 		return v
 	}
-	function hum(x) {
-		if (x >= 1000000) return sprintf("%.2f MB/s", x / 1000000)
-		if (x >= 1000)    return sprintf("%.1f kB/s", x / 1000)
-		return sprintf("%.0f B/s", x)
-	}
-	NR <= n { r0[$1] = tob($2); t0[$1] = tob($4); next }
+	NR <= n { t0[$1] = tob($4); next }
 	{
-		rx = (tob($2) - r0[$1]) / t
-		tx = (tob($4) - t0[$1]) / t
-		printf "  %-26s RX %-12s TX %-12s %6.1f Mbps\n", $1, hum(rx), hum(tx), (rx + tx) * 8 / 1000000
-		srx += rx; stx += tx
+		# NetIO 는 "수신 / 송신" 이므로 $4 가 아웃바운드다.
+		mbps = (tob($4) - t0[$1]) / t * 8 / 1000000
+		printf "  %-26s %8.2f Mbps\n", $1, mbps
+		sum += mbps
 	}
-	END {
-		printf "  %-26s RX %-12s TX %-12s %6.1f Mbps\n", "합계", hum(srx), hum(stx), (srx + stx) * 8 / 1000000
-	}'
+	END { printf "  %-28s %8.2f Mbps\n", "합계", sum }'
 
 	# 이미지가 scratch 라 docker exec 로는 ss 를 쓸 수 없다.
 	# 호스트의 ss 를 컨테이너 네트워크 네임스페이스에 넣어 실행한다.
@@ -174,7 +168,7 @@ cmd_net() {
 		printf "  %-26s %s\n" "$c" "$cnt"
 		total=$((total + cnt))
 	done
-	printf "  %-26s %s\n" "합계" "$total"
+	printf "  %-28s %s\n" "합계" "$total"
 }
 
 cmd_build() {
