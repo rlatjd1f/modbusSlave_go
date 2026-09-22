@@ -126,7 +126,7 @@ compose 파일만 필요하면 그쪽을 직접 써도 된다.
 
 ```
 NAME                      STATUS                   PORTS
-modbus_slave-slave-01-1   Up 5 seconds (healthy)   0.0.0.0:502->5020/tcp
+modbus-slave-502   Up 5 seconds (healthy)   0.0.0.0:502->5020/tcp
 ...
 ==> healthy: 20 / 20
 ```
@@ -211,9 +211,9 @@ make load TARGETS=$TARGETS CONNS=50 SECS=60
 ```
   CONTAINER                       CPU         MEM            IN           OUT
   --------------------------------------------------------------------------
-  modbus_slave-slave-01-1       0.56%    5.273MiB     0.31 Mbps     0.68 Mbps
-  modbus_slave-slave-02-1       0.60%     5.34MiB     0.38 Mbps     0.87 Mbps
-  modbus_slave-slave-03-1       0.34%    5.262MiB     0.38 Mbps     0.87 Mbps
+  modbus-slave-502       0.56%    5.273MiB     0.31 Mbps     0.68 Mbps
+  modbus-slave-503       0.60%     5.34MiB     0.38 Mbps     0.87 Mbps
+  modbus-slave-504       0.34%    5.262MiB     0.38 Mbps     0.87 Mbps
   --------------------------------------------------------------------------
   합계                          1.50%     15.9MiB     1.07 Mbps     2.42 Mbps
   vCPU 환산 0.015   |   통합 3.50 Mbps   |   누적 수신 1.5 MB / 송신 3.3 MB
@@ -236,13 +236,13 @@ docker stats --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}'
 
 ```
 ==> 아웃바운드 전송률 (5초 샘플)
-  modbus_slave-slave-01-1        0.73 Mbps
-  modbus_slave-slave-02-1        0.73 Mbps
-  modbus_slave-slave-03-1        0.83 Mbps
-  modbus_slave-slave-04-1        0.62 Mbps
+  modbus-slave-502        0.73 Mbps
+  modbus-slave-503        0.73 Mbps
+  modbus-slave-504        0.83 Mbps
+  modbus-slave-505        0.62 Mbps
   합계                           2.91 Mbps
 ==> 확립된 커넥션 수
-  modbus_slave-slave-01-1    50
+  modbus-slave-502    50
   ...
   합계                       200
 ```
@@ -283,8 +283,8 @@ Graviton 은 이보다 2~2.5배 높게 나올 것으로 예상한다. 실제 값
 ./slave.sh net                # 아웃바운드 전송률(Mbps) + 커넥션 수
 ./slave.sh top                # CPU/메모리/송수신 실시간 갱신
 ./slave.sh restart            # 전체 재시작
-./slave.sh restart slave-03   # 하나만 재시작
-./slave.sh logs slave-03      # 로그 (info 레벨은 기동 줄 1개뿐)
+./slave.sh restart slave-502  # 하나만 재시작 (서비스명 = slave-<포트>)
+./slave.sh logs slave-502     # 로그 (info 레벨은 기동 줄 1개뿐)
 ./slave.sh down               # 전체 중지 및 삭제
 ./slave.sh up 502-521         # 다시 기동
 ```

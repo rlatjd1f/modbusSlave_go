@@ -5,8 +5,8 @@
 #   ./slave.sh up 502            슬레이브 1개
 #   ./slave.sh ps                상태 확인
 #   ./slave.sh restart           전체 재시작
-#   ./slave.sh restart slave-03  하나만 재시작
-#   ./slave.sh logs slave-03     로그 따라가기
+#   ./slave.sh restart slave-502 하나만 재시작 (서비스명 = slave-<포트>)
+#   ./slave.sh logs slave-502    로그 따라가기
 #   ./slave.sh net               아웃바운드 전송률(Mbps) + 커넥션 수 (기본 5초 샘플)
 #   ./slave.sh net 10            10초 샘플
 #   ./slave.sh top               CPU/메모리/송수신 실시간 갱신 (Ctrl+C 로 종료)

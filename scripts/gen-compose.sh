@@ -34,13 +34,15 @@ x-slave: &slave
 services:
 HEADER
 
+# 서비스명과 컨테이너명에 호스트 포트를 넣는다.
+# docker ps 만 봐도 어느 포트를 담당하는 슬레이브인지 바로 알 수 있다.
 i=0
 while [ "$i" -lt "$COUNT" ]; do
-	n=$(printf '%02d' $((i + 1)))
 	port=$((START + i))
 	cat <<SVC
-  slave-${n}:
+  slave-${port}:
     <<: *slave
+    container_name: modbus-slave-${port}
     command: ["--port", "5020", "--registers", "${REGS}", "--max-conns", "${MAXCONNS}"]
     ports: ["${port}:5020"]
 SVC
