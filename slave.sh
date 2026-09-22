@@ -87,6 +87,17 @@ ensure_image() {
 	fi
 }
 
+# 이미지 존재만으로는 부족하다. git pull 로 소스가 바뀌어도 기존 이미지는 그대로
+# 남아, metrics-agent 가 없던 시절의 이미지로 mon up 을 시도하면 실패한다.
+# 필요한 바이너리가 실제로 들어 있는지 확인하고 없으면 다시 빌드한다.
+ensure_binary() {
+	ensure_image
+	if ! docker run --rm --entrypoint "$1" "$IMAGE" --help >/dev/null 2>&1; then
+		echo "==> 이미지에 $1 이(가) 없어 다시 빌드합니다"
+		docker build -t "$IMAGE" .
+	fi
+}
+
 # healthy 개수가 total 이 될 때까지 최대 60초 기다린다.
 wait_healthy() {
 	total="$1"
@@ -253,7 +264,7 @@ cmd_mon() {
 
 	case "$sub" in
 	up)
-		ensure_image
+		ensure_binary /metrics-agent
 		echo "==> 모니터링 스택 기동"
 		mdc up -d --remove-orphans
 		echo

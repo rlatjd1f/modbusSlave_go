@@ -381,6 +381,11 @@ CPU·메모리·디스크 쪽을 보완한다.
 ./slave.sh update
 ```
 
+> `git pull` 만 하고 `./slave.sh mon up` 을 실행하면 이미지가 예전 것이라
+> 실패할 수 있다. `up` 계열은 이미지 존재 여부만 보기 때문이다.
+> `mon up` 은 `/metrics-agent` 가 실제로 들어 있는지 확인해 없으면 자동으로
+> 다시 빌드하지만, 소스를 받은 뒤에는 `./slave.sh update` 를 쓰는 편이 확실하다.
+
 > `./slave.sh restart` 는 기존 컨테이너를 그대로 재시작하므로 **이미지를 새로
 > 빌드했거나 포트 범위를 바꿨다면 반영되지 않는다.** 그럴 때는 `./slave.sh update`
 > 나 `./slave.sh up <범위>` 를 쓴다.
