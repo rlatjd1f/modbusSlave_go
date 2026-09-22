@@ -319,24 +319,14 @@ EXPIRE liz.stats.server.modbus.network.traffic 9
 - **TTL 9초** (주기 3초 x 3). 에이전트가 죽으면 키가 사라지므로
   소비자가 낡은 값을 실시간 값으로 오인하지 않는다
 
-Redis 주소 등은 환경변수로 바꾼다.
+Redis 주소 등은 환경변수로 바꾼다. 기본값은 `2mtest.liz.com:6379` 다.
 
 ```bash
-REDIS_ADDR=172.31.x.x:6379 ./slave.sh mon up
+REDIS_ADDR=172.31.x.x:6379 REDIS_PASSWORD=secret ./slave.sh mon up
 ```
 
-매번 입력하지 않으려면 `monitoring/.env` 에 적어 둔다. compose 가 자동으로 읽고,
-이 파일은 `.gitignore` 에 있어 커밋되지 않으므로 비밀번호를 넣어도 된다.
-
-```bash
-cp monitoring/.env.example monitoring/.env
-vi monitoring/.env
-./slave.sh mon up
-```
-
-> **Redis 주소는 사설 IP 를 쓰는 편이 확실하다.** 같은 VPC 안에 있는데도
-> 퍼블릭 DNS 이름이 외부 경로를 가리켜 닿지 않는 경우가 있다. 실제로
-> `2mtest.liz.com:6379` 는 막히고 사설 IP 로는 붙었다.
+> **닿지 않으면 사설 IP 를 먼저 시도한다.** 같은 VPC 안에 있는데도 퍼블릭 DNS
+> 이름이 외부 경로를 가리켜 막히는 경우가 있다.
 
 | 환경변수 | 기본값 |
 |---|---|

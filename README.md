@@ -27,7 +27,6 @@ docker run -d -p 5020:5020 modbus-slave --port 5020
 ./slave.sh restart         # 전체 재시작
 ./slave.sh down            # 전체 중지
 ./slave.sh mon up          # 모니터링 + Redis 연동 (Prometheus/Grafana/exporter)
-                           # Redis 주소는 monitoring/.env 에 적어 둔다
 ```
 
 ```bash

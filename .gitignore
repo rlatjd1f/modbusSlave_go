@@ -2,4 +2,3 @@ bin/
 # gen-compose.sh 가 만드는 루트의 슬레이브 compose 파일만 무시한다.
 # 앞의 슬래시가 없으면 monitoring/docker-compose.yml 까지 함께 걸린다.
 /docker-compose.yml
-monitoring/.env
