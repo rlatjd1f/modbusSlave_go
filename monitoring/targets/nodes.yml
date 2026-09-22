@@ -1,0 +1,25 @@
+# 성능 측정 대상 서버 목록. Prometheus 가 이 파일을 감시하다가
+# 바뀌면 자동으로 반영한다. 재시작할 필요 없다.
+#
+# 대상 서버마다 node-exporter 를 9100 포트로 띄우고 여기에 추가한다.
+#   docker run -d --name node-exporter --restart unless-stopped \
+#     --pid host --network host -v /:/host:ro \
+#     prom/node-exporter:v1.8.2 --path.rootfs=/host
+#
+# 각 대상 서버의 보안 그룹에서 에뮬레이터 서버 IP 로부터 TCP 9100 을 허용해야 한다.
+# host 라벨이 대시보드에 표시되는 이름이다.
+
+- targets: ['node-exporter:9100']
+  labels:
+    host: emulator
+    role: emulator
+
+# 아래는 예시다. 실제 IP 로 바꾸고 주석을 푼다.
+#- targets: ['172.31.53.105:9100']
+#  labels: {host: collector-1, role: collector}
+#- targets: ['172.31.48.234:9100']
+#  labels: {host: collector-2, role: collector}
+#- targets: ['172.31.48.227:9100']
+#  labels: {host: collector-3, role: collector}
+#- targets: ['172.31.62.55:9100']
+#  labels: {host: collector-4, role: collector}

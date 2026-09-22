@@ -10,10 +10,21 @@ scrape_configs:
     static_configs:
       - targets: ['metrics-agent:9101']
 
-  # 장비 CPU / 메모리 / NIC / 디스크
+  # 장비 CPU / 메모리 / NIC / 디스크.
+  # 대상 서버 목록은 targets/nodes.yml 에 둔다. Prometheus 가 파일을 감시하므로
+  # 서버를 추가해도 재시작이 필요 없다.
   - job_name: node
-    static_configs:
-      - targets: ['node-exporter:9100']
+    file_sd_configs:
+      - files: ['/etc/prometheus/targets/*.yml']
+        refresh_interval: 30s
+    relabel_configs:
+      # host 라벨을 지정하지 않은 항목만 주소로 채운다.
+      # host 와 주소를 이어 붙였을 때 ';' 로 시작하면 host 가 비어 있다는 뜻이다.
+      - source_labels: [host, __address__]
+        separator: ';'
+        regex: ';(.*)'
+        target_label: host
+        replacement: '$1'
 
   - job_name: prometheus
     static_configs:

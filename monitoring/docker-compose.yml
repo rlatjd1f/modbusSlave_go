@@ -30,6 +30,8 @@ services:
       - '--storage.tsdb.retention.size=10GB'
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # 측정 대상 서버 목록. 파일을 고치면 재시작 없이 반영된다.
+      - ./targets:/etc/prometheus/targets:ro
       - prometheus-data:/prometheus
     ports: ["127.0.0.1:9090:9090"]
     mem_limit: 1g

@@ -389,6 +389,56 @@ bms       506-509   collector-1   172.31.53.105
 - **슬레이브 상태 표** — 포트별 현재 아웃바운드를 오름차순으로 세워 0 인 것을
   빨간색으로 맨 위에 올린다. 어느 콜렉터의 어느 포트가 비었는지 한눈에 보인다.
 
+### 다른 서버도 함께 보기
+
+성능 테스트에 참여하는 장비(콜렉터 서버 등)의 CPU / 메모리 / 네트워크도 같은
+대시보드에서 볼 수 있다. **Grafana 에 데이터소스를 추가하는 것이 아니다.**
+흐름은 이렇다.
+
+```
+node-exporter (각 서버)  ->  Prometheus (에뮬레이터 서버)  ->  Grafana
+```
+
+**1. 대상 서버에서 node-exporter 를 띄운다.**
+
+```bash
+docker run -d --name node-exporter --restart unless-stopped \
+  --pid host --network host -v /:/host:ro \
+  prom/node-exporter:v1.8.2 --path.rootfs=/host
+```
+
+Docker 가 없으면 패키지로 설치해도 된다.
+
+```bash
+sudo apt-get install -y prometheus-node-exporter
+```
+
+**2. 대상 서버 보안 그룹에서 TCP 9100 을 에뮬레이터 서버 IP 로부터 허용한다.**
+전체 개방하지 않는다. node-exporter 는 인증이 없다.
+
+**3. 에뮬레이터 서버의 `monitoring/targets/nodes.yml` 에 추가한다.**
+
+```yaml
+- targets: ['172.31.53.105:9100']
+  labels: {host: collector-1, role: collector}
+```
+
+**Prometheus 가 이 파일을 30초마다 확인하므로 재시작할 필요가 없다.**
+`host` 라벨이 대시보드에 표시되는 이름이다.
+
+등록됐는지는 이렇게 확인한다.
+
+```bash
+curl -s 'http://localhost:9090/api/v1/targets?state=active' \
+  | grep -o '"host":"[^"]*","job":"node"' | sort -u
+```
+
+대시보드 맨 아래 **성능 테스트 대상 서버** 행에 서버별 CPU / 메모리 / 네트워크
+송수신 / 로드 애버리지 / 디스크가 `host` 별로 나뉘어 나타난다.
+
+> 콜렉터 서버의 **컨테이너별** 지표까지 보려면 그쪽에도 metrics-agent 가 필요하다.
+> node-exporter 는 장비 전체만 본다.
+
 ### Grafana 접속
 
 `http://<퍼블릭IP>:3000` 으로 바로 접속한다. 계정은 `admin / admin` 이고
