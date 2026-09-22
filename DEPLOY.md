@@ -202,23 +202,30 @@ make load TARGETS=$TARGETS CONNS=50 SECS=60
 ```bash
 ./slave.sh net        # 5초 샘플, 1회 출력
 ./slave.sh net 10     # 10초 샘플
-./slave.sh top        # CPU/메모리/아웃바운드 실시간 갱신 (Ctrl+C 로 종료)
+./slave.sh top        # CPU/메모리/송수신 실시간 갱신 (Ctrl+C 로 종료)
 ./slave.sh top 5      # 5초 간격
 ```
 
 `top` 은 부하를 거는 동안 띄워 두고 보는 용도다.
 
 ```
-  CONTAINER                       CPU          MEM            OUT
-  ------------------------------------------------------------
-  modbus_slave-slave-01-1       0.58%     5.277MiB      0.86 Mbps
-  modbus_slave-slave-02-1       0.54%      7.27MiB      0.86 Mbps
-  modbus_slave-slave-03-1       0.48%     5.246MiB      0.69 Mbps
-  합계                          1.60%      17.8MiB      2.41 Mbps
-                                0.016 vCPU
-  ------------------------------------------------------------
-  19:30:11   갱신 3s   Ctrl+C 로 종료
+  CONTAINER                       CPU         MEM            IN           OUT
+  --------------------------------------------------------------------------
+  modbus_slave-slave-01-1       0.56%    5.273MiB     0.31 Mbps     0.68 Mbps
+  modbus_slave-slave-02-1       0.60%     5.34MiB     0.38 Mbps     0.87 Mbps
+  modbus_slave-slave-03-1       0.34%    5.262MiB     0.38 Mbps     0.87 Mbps
+  --------------------------------------------------------------------------
+  합계                          1.50%     15.9MiB     1.07 Mbps     2.42 Mbps
+  vCPU 환산 0.015   |   통합 3.50 Mbps   |   누적 수신 1.5 MB / 송신 3.3 MB
+  10:23:26   갱신 3s   Ctrl+C 로 종료
 ```
+
+- 컨테이너별 **IN / OUT 전송률**과 전체 **합계**, 그리고 컨테이너 기동 이후
+  **누적 송수신량**을 함께 보여준다.
+- `vCPU 환산` 은 CPU 합계를 코어 수로 바꾼 값이다. 인스턴스 사이징을 볼 때
+  퍼센트보다 이쪽이 바로 읽힌다.
+- OUT 이 IN 의 2~3배인 것이 정상이다. 요청은 12바이트지만 125개 레지스터 응답은
+  259바이트다.
 
 `docker stats` 로도 CPU 와 메모리는 실시간으로 볼 수 있다. 다만 `NET I/O` 가
 누적값이라 전송률은 보이지 않는다.
@@ -274,7 +281,7 @@ Graviton 은 이보다 2~2.5배 높게 나올 것으로 예상한다. 실제 값
 ```bash
 ./slave.sh ps                 # 상태 + healthy 개수
 ./slave.sh net                # 아웃바운드 전송률(Mbps) + 커넥션 수
-./slave.sh top                # CPU/메모리/아웃바운드 실시간 갱신
+./slave.sh top                # CPU/메모리/송수신 실시간 갱신
 ./slave.sh restart            # 전체 재시작
 ./slave.sh restart slave-03   # 하나만 재시작
 ./slave.sh logs slave-03      # 로그 (info 레벨은 기동 줄 1개뿐)

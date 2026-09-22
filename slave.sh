@@ -9,7 +9,7 @@
 #   ./slave.sh logs slave-03     로그 따라가기
 #   ./slave.sh net               아웃바운드 전송률(Mbps) + 커넥션 수 (기본 5초 샘플)
 #   ./slave.sh net 10            10초 샘플
-#   ./slave.sh top               CPU/메모리/아웃바운드 실시간 갱신 (Ctrl+C 로 종료)
+#   ./slave.sh top               CPU/메모리/송수신 실시간 갱신 (Ctrl+C 로 종료)
 #   ./slave.sh top 5             5초 간격
 #   ./slave.sh down              전체 중지 및 삭제
 #   ./slave.sh build             이미지 재빌드
@@ -173,8 +173,9 @@ cmd_net() {
 	printf "  %-28s %s\n" "합계" "$total"
 }
 
-# CPU / 메모리 / 아웃바운드를 한 화면에서 주기적으로 갱신한다.
+# CPU / 메모리 / 인바운드 / 아웃바운드를 한 화면에서 주기적으로 갱신한다.
 # docker stats 의 NET I/O 가 누적값이라 매 주기 두 번 재서 차이를 Mbps 로 환산한다.
+# 누적 송수신량은 두 번째 표본의 절대값을 그대로 합산한다(컨테이너 기동 이후 총량).
 cmd_top() {
 	need_compose
 	INT="${1:-3}"
@@ -204,26 +205,34 @@ cmd_top() {
 			if (u == "GB") return v * 1000000000
 			return v
 		}
-		NR <= n { t0[$1] = tob($4); next }
+		function vol(x) {
+			if (x >= 1000000000) return sprintf("%.2f GB", x / 1000000000)
+			if (x >= 1000000)    return sprintf("%.1f MB", x / 1000000)
+			if (x >= 1000)       return sprintf("%.1f kB", x / 1000)
+			return sprintf("%d B", x)
+		}
+		NR <= n { r0[$1] = tob($2); t0[$1] = tob($4); next }
 		{
-			# $4 송신 누적, $5 CPU%, $6 메모리
-			mbps = (tob($4) - t0[$1]) / t * 8 / 1000000
+			# $2 수신 누적, $4 송신 누적, $5 CPU%, $6 메모리
+			rxbps = (tob($2) - r0[$1]) / t * 8 / 1000000
+			txbps = (tob($4) - t0[$1]) / t * 8 / 1000000
 			cpu = $5 + 0
-			mem = $6
-			printf "  %-26s %7.2f%% %12s %9.2f Mbps\n", $1, cpu, mem, mbps
-			scpu += cpu; smbps += mbps
-			split(mem, m, "MiB"); smem += m[1]
+			printf "  %-26s %7.2f%% %11s %8.2f Mbps %8.2f Mbps\n", $1, cpu, $6, rxbps, txbps
+			scpu += cpu; srx += rxbps; stx += txbps
+			crx += tob($2); ctx += tob($4)
+			split($6, m, "MiB"); smem += m[1]
 		}
 		END {
-			printf "  %-28s %7.2f%% %9.1fMiB %9.2f Mbps\n", "합계", scpu, smem, smbps
-			printf "  %-26s %7.3f vCPU\n", "", scpu / 100
+			printf "  %s\n", "--------------------------------------------------------------------------"
+			printf "  %-28s %7.2f%% %8.1fMiB %8.2f Mbps %8.2f Mbps\n", "합계", scpu, smem, srx, stx
+			printf "  vCPU 환산 %.3f   |   통합 %.2f Mbps   |   누적 수신 %s / 송신 %s\n", \
+				scpu / 100, srx + stx, vol(crx), vol(ctx)
 		}')
 
 		clear 2>/dev/null || printf '\033[H\033[2J'
-		printf '  %-26s %8s %12s %14s\n' "CONTAINER" "CPU" "MEM" "OUT"
-		printf '  %s\n' "------------------------------------------------------------"
+		printf '  %-26s %8s %11s %13s %13s\n' "CONTAINER" "CPU" "MEM" "IN" "OUT"
+		printf '  %s\n' "--------------------------------------------------------------------------"
 		printf '%s\n' "$out"
-		printf '  %s\n' "------------------------------------------------------------"
 		printf '  %s   갱신 %ss   Ctrl+C 로 종료\n' "$(date '+%H:%M:%S')" "$INT"
 	done
 }

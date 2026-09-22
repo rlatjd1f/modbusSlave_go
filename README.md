@@ -23,7 +23,7 @@ docker run -d -p 5020:5020 modbus-slave --port 5020
 ./slave.sh up 502-521      # 슬레이브 20개
 ./slave.sh ps              # 상태
 ./slave.sh net             # 아웃바운드 전송률(Mbps) + 커넥션 수
-./slave.sh top             # CPU/메모리/아웃바운드 실시간 갱신
+./slave.sh top             # CPU/메모리/송수신 실시간 갱신
 ./slave.sh restart         # 전체 재시작
 ./slave.sh down            # 전체 중지
 ```
