@@ -38,17 +38,18 @@ const (
 )
 
 type config struct {
-	redisAddr string
-	redisPass string
-	redisDB   int
-	key       string
-	interval  time.Duration
-	prefix    string
-	socket    string
-	timeout   time.Duration
-	logLevel  string
-	once      bool
-	metrics   string
+	redisAddr  string
+	redisPass  string
+	redisDB    int
+	key        string
+	interval   time.Duration
+	prefix     string
+	socket     string
+	timeout    time.Duration
+	logLevel   string
+	once       bool
+	metrics    string
+	collectors string
 }
 
 func main() {
@@ -77,7 +78,19 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	exp := newExporter()
+	cmap, err := loadCollectors(cfg.collectors)
+	if err != nil {
+		// 매핑이 잘못됐으면 라벨이 조용히 틀리는 것보다 기동 실패가 낫다.
+		fmt.Fprintf(os.Stderr, "콜렉터 매핑 오류: %v\n", err)
+		return 2
+	}
+	if len(cmap) > 0 {
+		log.Info("콜렉터 매핑 적용", "file", cfg.collectors, "포트수", len(cmap))
+	} else {
+		log.Debug("콜렉터 매핑 없음", "file", cfg.collectors)
+	}
+
+	exp := newExporter(cmap)
 	if cfg.metrics != "" {
 		serveMetrics(cfg.metrics, exp, log)
 	}
@@ -279,6 +292,7 @@ func parseFlags(args []string, getenv func(string) string, out io.Writer) (*conf
 	fs.DurationVar(&cfg.timeout, "timeout", 5*time.Second, "Docker/Redis 요청 타임아웃")
 	fs.StringVar(&cfg.logLevel, "log-level", envStr("LOG_LEVEL", "info"), "debug|info|warn|error")
 	fs.StringVar(&cfg.metrics, "metrics-addr", envStr("METRICS_ADDR", ":9101"), "Prometheus 메트릭 노출 주소 (빈 값이면 끔)")
+	fs.StringVar(&cfg.collectors, "collectors", envStr("COLLECTORS_FILE", "/etc/modbus/collectors.conf"), "포트-콜렉터 매핑 파일 (없으면 라벨 생략)")
 	fs.BoolVar(&cfg.once, "once", false, "한 번만 전송하고 종료 (점검용)")
 
 	if err := fs.Parse(args); err != nil {

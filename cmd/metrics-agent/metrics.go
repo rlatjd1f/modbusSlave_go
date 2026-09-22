@@ -18,10 +18,26 @@ import (
 type exporter struct {
 	mu      sync.RWMutex
 	samples map[string]sample
+	cmap    collectorMap
 }
 
-func newExporter() *exporter {
-	return &exporter{samples: map[string]sample{}}
+func newExporter(cmap collectorMap) *exporter {
+	return &exporter{samples: map[string]sample{}, cmap: cmap}
+}
+
+// labels 는 시계열에 붙일 라벨 문자열을 만든다.
+// 콜렉터 매핑이 있으면 collector / server 라벨을 더해
+// Grafana 에서 포트 대신 콜렉터 이름으로 묶을 수 있게 한다.
+func (e *exporter) labels(container string) string {
+	port := fieldName(container)
+	s := fmt.Sprintf("port=%q,container=%q", port, container)
+	if c, ok := e.cmap.lookup(port); ok {
+		s += fmt.Sprintf(",collector=%q,server=%q", c.Collector, c.Server)
+		if c.ServerIP != "" {
+			s += fmt.Sprintf(",server_ip=%q", c.ServerIP)
+		}
+	}
+	return s
 }
 
 // update 는 한 주기 분의 측정값을 갈아 끼운다.
@@ -68,7 +84,7 @@ func (e *exporter) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 		var total float64
 		for _, n := range names {
 			v := m.val(samples[n])
-			fmt.Fprintf(&b, "%s{port=%q,container=%q} %g\n", m.name, fieldName(n), n, v)
+			fmt.Fprintf(&b, "%s{%s} %g\n", m.name, e.labels(n), v)
 			total += v
 		}
 		// counter 는 합계를 따로 내지 않는다. Prometheus 에서 sum() 으로 구하면 된다.

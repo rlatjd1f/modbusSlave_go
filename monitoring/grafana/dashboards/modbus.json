@@ -14,6 +14,119 @@
   },
   "panels": [
     {
+      "id": 10,
+      "title": "콜렉터별 아웃바운드",
+      "type": "timeseries",
+      "description": "포트 범위를 monitoring/collectors.conf 로 콜렉터에 대응시켜 묶은 값.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "expr": "sum by (collector) (modbus_slave_transmit_mbps)",
+          "legendFormat": "{{collector}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Mbits",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "콜렉터 서버별 아웃바운드",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (server) (modbus_slave_transmit_mbps)",
+          "legendFormat": "{{server}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Mbits",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 1,
       "title": "통합 아웃바운드 (슬레이브 전체)",
       "description": "슬레이브 컨테이너 합계와 호스트 NIC 실제 송신량. 두 값이 크게 벌어지면 브리지/NAT 구간을 의심한다.",
@@ -24,7 +137,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 0,
+        "y": 18,
         "w": 24,
         "h": 8
       },
@@ -90,14 +203,14 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 8,
+        "y": 26,
         "w": 24,
         "h": 10
       },
       "targets": [
         {
           "expr": "modbus_slave_transmit_mbps",
-          "legendFormat": "{{port}}",
+          "legendFormat": "{{collector}} · {{port}}",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -147,14 +260,14 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 36,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
           "expr": "modbus_slave_receive_mbps",
-          "legendFormat": "{{port}}",
+          "legendFormat": "{{collector}} · {{port}}",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -204,7 +317,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 18,
+        "y": 36,
         "w": 12,
         "h": 8
       },
@@ -270,7 +383,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 44,
         "w": 12,
         "h": 8
       },
@@ -336,7 +449,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 26,
+        "y": 44,
         "w": 12,
         "h": 8
       },

@@ -352,6 +352,33 @@ REDIS_ADDR=172.31.x.x:6379 ./slave.sh mon up
 docker exec -it <redis> redis-cli HGETALL liz.stats.server.modbus.network.traffic
 ```
 
+### 콜렉터 이름 붙이기
+
+`monitoring/collectors.conf` 가 포트 범위를 콜렉터에 대응시킨다.
+metrics-agent 가 이 파일을 읽어 Prometheus 메트릭에 `collector` / `server` /
+`server_ip` 라벨을 붙이므로, 대시보드에서 포트 번호 대신 콜렉터 이름으로 묶인다.
+
+```
+# <콜렉터>  <시작포트-끝포트>  <콜렉터서버>  <서버 내부 IP>
+bas       502-505   collector-1   172.31.53.105
+bms       506-509   collector-1   172.31.53.105
+...
+```
+
+- 구성이 바뀌면 이 파일만 고치고 `./slave.sh mon up` 으로 반영한다
+- 포트가 겹치거나 범위 형식이 틀리면 **에이전트가 기동에 실패한다.**
+  라벨이 조용히 틀리는 것보다 낫기 때문이다
+- 파일이 없으면 라벨 없이 포트 번호로만 동작한다
+
+대시보드 맨 위 두 패널이 이 라벨을 쓴다.
+
+| 패널 | 쿼리 |
+|---|---|
+| 콜렉터별 아웃바운드 | `sum by (collector) (modbus_slave_transmit_mbps)` |
+| 콜렉터 서버별 아웃바운드 | `sum by (server) (modbus_slave_transmit_mbps)` |
+
+컨테이너별 패널의 범례도 `bas · 502` 형태로 바뀐다.
+
 ### Grafana 접속
 
 `http://<퍼블릭IP>:3000` 으로 바로 접속한다. 계정은 `admin / admin` 이고
