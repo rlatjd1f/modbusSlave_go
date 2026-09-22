@@ -57,16 +57,6 @@ func TestReadReplyErrorCarriesMessage(t *testing.T) {
 	}
 }
 
-func TestPublishRejectsOddFields(t *testing.T) {
-	c := New("127.0.0.1:1", "", 0, 0)
-	if err := c.Publish("k", []string{"only"}, 9); err == nil {
-		t.Fatal("홀수 필드인데 오류 없음")
-	}
-	if err := c.Publish("k", nil, 9); err == nil {
-		t.Fatal("빈 필드인데 오류 없음")
-	}
-}
-
 func TestIsAuthError(t *testing.T) {
 	auth := []string{
 		"NOAUTH Authentication required.",

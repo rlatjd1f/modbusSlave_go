@@ -22,27 +22,20 @@ func TestFieldName(t *testing.T) {
 	}
 }
 
-func TestBuildFields(t *testing.T) {
-	// Redis 에는 통합값만 싣는다. 슬레이브별 값은 Prometheus 로 나간다.
-	fields := buildFields(map[string]sample{
+func TestBuildValue(t *testing.T) {
+	// Redis 에는 통합값 하나만 싣는다. 슬레이브별 값은 Prometheus 로 나간다.
+	got := buildValue(map[string]sample{
 		"modbus-slave-503": {TxMbps: 0.874},
 		"modbus-slave-502": {TxMbps: 0.862},
 	})
-	if len(fields) != 4 {
-		t.Fatalf("필드 수 %d, want 4: %v", len(fields), fields)
-	}
-	if fields[0] != "total" || fields[1] != "1.736" {
-		t.Errorf("total = %q=%q, want total=1.736", fields[0], fields[1])
-	}
-	if fields[2] != "ts" || fields[3] == "" {
-		t.Errorf("ts 누락: %v", fields[2:])
+	if got != "1.736" {
+		t.Errorf("buildValue = %q, want \"1.736\"", got)
 	}
 }
 
-func TestBuildFieldsEmpty(t *testing.T) {
-	fields := buildFields(map[string]sample{})
-	if len(fields) != 4 || fields[0] != "total" || fields[1] != "0.000" {
-		t.Fatalf("빈 입력 결과 %v", fields)
+func TestBuildValueEmpty(t *testing.T) {
+	if got := buildValue(map[string]sample{}); got != "0.000" {
+		t.Errorf("buildValue = %q, want \"0.000\"", got)
 	}
 }
 

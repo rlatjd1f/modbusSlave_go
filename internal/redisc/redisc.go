@@ -100,50 +100,18 @@ func IsAuthError(err error) bool {
 	return false
 }
 
-// Del 은 키를 지운다.
-// 해시 필드 구성이 바뀌었을 때 예전 필드가 남는 것을 막기 위해 기동 시 한 번 호출한다.
-// HSET 은 기존 필드를 지우지 않고, TTL 이 매 주기 갱신되므로 놔두면 영원히 남는다.
-func (c *Client) Del(key string) error {
+// Set 은 키에 값을 쓰고 TTL 을 건다.
+//
+// SET ... EX 한 번으로 끝내므로 값과 만료가 항상 함께 적용된다.
+// SET 은 키의 기존 타입을 덮어쓰므로, 예전 버전이 해시로 써 둔 키도 그대로 대체된다.
+func (c *Client) Set(key, value string, ttl time.Duration) error {
 	if err := c.connect(); err != nil {
 		return err
 	}
 	_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
-	if _, err := c.do("DEL", key); err != nil {
+	if _, err := c.do("SET", key, value, "EX", strconv.Itoa(int(ttl.Seconds()))); err != nil {
 		c.Close()
-		return fmt.Errorf("DEL 실패: %w", err)
-	}
-	return nil
-}
-
-// Publish 는 필드 맵을 해시에 쓰고 TTL 을 건다.
-// HSET 과 EXPIRE 를 한 번에 보내고 응답 두 개를 읽는 파이프라인이다.
-// 어떤 단계든 실패하면 연결을 버려서 다음 호출이 새로 연결하게 한다.
-func (c *Client) Publish(key string, fields []string, ttl time.Duration) error {
-	if len(fields) == 0 || len(fields)%2 != 0 {
-		return errors.New("필드는 이름/값 쌍이어야 함")
-	}
-	if err := c.connect(); err != nil {
-		return err
-	}
-
-	args := make([]string, 0, len(fields)+2)
-	args = append(args, "HSET", key)
-	args = append(args, fields...)
-
-	var buf strings.Builder
-	encode(&buf, args)
-	encode(&buf, []string{"EXPIRE", key, strconv.Itoa(int(ttl.Seconds()))})
-
-	_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
-	if _, err := c.conn.Write([]byte(buf.String())); err != nil {
-		c.Close()
-		return fmt.Errorf("전송 실패: %w", err)
-	}
-	for range 2 {
-		if _, err := readReply(c.r); err != nil {
-			c.Close()
-			return fmt.Errorf("응답 오류: %w", err)
-		}
+		return fmt.Errorf("SET 실패: %w", err)
 	}
 	return nil
 }

@@ -306,22 +306,21 @@ Graviton 은 이보다 2~2.5배 높게 나올 것으로 예상한다. 실제 값
 
 ### Redis 연동
 
-**전체 통합 아웃바운드**를 3초마다 쓴다. 슬레이브별 값은 싣지 않는다.
+**전체 통합 아웃바운드**를 3초마다 쓴다. 값 하나짜리 문자열 키다.
 
 ```
-HSET liz.stats.server.modbus.network.traffic total 41.203 ts 1758500000
-EXPIRE liz.stats.server.modbus.network.traffic 9
+SET liz.stats.server.modbus.network.traffic 41.203 EX 9
 ```
 
-- `total` — 전체 통합 아웃바운드 **Mbps, 소수점 3자리**
-- `ts` — 갱신 시각(unix). 소비하는 쪽이 신선도를 직접 판단할 수 있다
+- 값은 전체 통합 아웃바운드 **Mbps, 소수점 3자리**
 - **TTL 9초** (주기 3초 x 3). 에이전트가 죽으면 키가 사라지므로
-  소비자가 낡은 값을 실시간 값으로 오인하지 않는다
+  소비자가 낡은 값을 실시간 값으로 오인하지 않는다.
+  키가 살아 있다는 것 자체가 신선하다는 뜻이다
+- `SET ... EX` 한 번으로 끝내므로 값과 만료가 항상 함께 적용된다
 
 슬레이브별 값은 Prometheus 로 노출되어 Grafana 에서 본다(`:9101/metrics`).
 
-> 에이전트는 기동할 때 이 키를 한 번 `DEL` 한다. 예전 버전이 남긴 포트별 필드는
-> `HSET` 으로 덮이지 않고, TTL 이 매 주기 갱신되므로 지우지 않으면 영원히 남는다.
+> `SET` 은 키의 기존 타입을 덮어쓰므로, 예전 버전이 해시로 써 둔 키도 그대로 대체된다.
 
 접속 정보는 `monitoring/.env` 에 적어 둔다. compose 가 자동으로 읽는다.
 이 파일은 `.gitignore` 에 있어 커밋되지 않고, 비밀번호가 명령 히스토리에도 남지 않는다.
@@ -355,20 +354,22 @@ REDIS_ADDR=172.31.x.x:6379 ./slave.sh mon up
 Redis 서버에서 확인하려면:
 
 ```bash
-redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning HGETALL liz.stats.server.modbus.network.traffic
+redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning GET liz.stats.server.modbus.network.traffic
 ```
 
-값과 신선도를 함께 보려면:
+값과 남은 TTL 을 함께 보려면:
 
 ```bash
-redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning HMGET liz.stats.server.modbus.network.traffic total ts | paste - - | awk -v now=$(date +%s) '{printf "  통합 아웃바운드 %.3f Mbps  (%d초 전 갱신)\n", $1, now-$2}'
+redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning -x eval "return {redis.call('GET',KEYS[1]), redis.call('TTL',KEYS[1])}" 1 liz.stats.server.modbus.network.traffic </dev/null
 ```
 
 3초마다 반복해서 보려면:
 
 ```bash
-redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning -r -1 -i 3 HGET liz.stats.server.modbus.network.traffic total
+redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning -r -1 -i 3 GET liz.stats.server.modbus.network.traffic
 ```
+
+값이 나오지 않으면 TTL 이 지난 것이다. 에이전트가 멈췄는지 확인한다.
 
 `systime()` 대신 `date` 값을 넘기는 이유는 mawk 처럼 그 함수가 없는 awk 가 있기 때문이다.
 

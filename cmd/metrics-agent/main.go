@@ -1,13 +1,13 @@
 // metrics-agent 는 modbus 슬레이브 컨테이너들의 아웃바운드 네트워크 전송률을
-// 주기적으로 측정해 Redis 해시에 기록한다.
+// 주기적으로 측정해 Redis 에 기록한다.
 //
-// 키 하나에 필드로 담는다.
+// 전체 통합 아웃바운드를 Mbps 로 키 하나에 담는다.
 //
-//	HSET <key> 502 0.86  503 0.87 ... total 41.20 ts 1758500000
-//	EXPIRE <key> <주기 x 3>
+//	SET <key> 41.203 EX <주기 x 3>
 //
 // TTL 을 거는 이유는 에이전트가 죽었을 때 소비하는 쪽이 낡은 값을
 // 실시간 값으로 오인하지 않게 하기 위함이다.
+// 슬레이브별 값은 Prometheus 로 노출되어 Grafana 에서 본다.
 package main
 
 import (
@@ -101,13 +101,6 @@ func run() int {
 		log.Error("첫 표본 수집 실패", "err", err)
 	}
 
-	// 예전 버전이 남긴 포트별 필드를 한 번 정리한다.
-	// HSET 은 기존 필드를 건드리지 않고 TTL 은 매 주기 갱신되므로,
-	// 지우지 않으면 낡은 값이 키에 영원히 남는다.
-	if err := rdb.Del(cfg.key); err != nil {
-		log.Warn("기존 키 정리 실패 (계속 진행)", "key", cfg.key, "err", err)
-	}
-
 	ticker := time.NewTicker(cfg.interval)
 	defer ticker.Stop()
 
@@ -132,9 +125,8 @@ func run() int {
 
 		exp.update(samples)
 
-		// Redis 에는 요청대로 아웃바운드만 싣는다.
-		fields := buildFields(samples)
-		if err := rdb.Publish(cfg.key, fields, cfg.interval*ttlFactor); err != nil {
+		// Redis 에는 통합 아웃바운드만 싣는다.
+		if err := rdb.Set(cfg.key, buildValue(samples), cfg.interval*ttlFactor); err != nil {
 			fails++
 			// 연결이 끊겨도 슬레이브에는 영향이 없다. 로그만 남기고 다음 주기에 재시도한다.
 			log.Error("Redis 전송 실패", "err", err, "연속실패", fails)
@@ -238,15 +230,10 @@ func (s *sampler) measure(ctx context.Context) (map[string]sample, error) {
 // redisDecimals 는 Redis 에 쓰는 Mbps 값의 소수 자릿수다.
 const redisDecimals = 3
 
-// buildFields 는 Redis 해시에 쓸 이름/값 쌍을 만든다.
-//
-// 전체 통합 아웃바운드(total)와 갱신 시각(ts)만 싣는다.
-// 슬레이브별 값은 Prometheus 로 노출되어 Grafana 에서 본다.
-func buildFields(samples map[string]sample) []string {
-	return []string{
-		"total", strconv.FormatFloat(totalOf(samples), 'f', redisDecimals, 64),
-		"ts", strconv.FormatInt(time.Now().Unix(), 10),
-	}
+// buildValue 는 Redis 에 쓸 값을 만든다.
+// 전체 통합 아웃바운드 Mbps 하나뿐이다.
+func buildValue(samples map[string]sample) string {
+	return strconv.FormatFloat(totalOf(samples), 'f', redisDecimals, 64)
 }
 
 // fieldName 은 "modbus-slave-502" 에서 "502" 를 뽑는다.
