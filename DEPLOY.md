@@ -341,6 +341,11 @@ docker exec -it <redis> redis-cli HGETALL liz.stats.server.modbus.network.traffi
 `http://<퍼블릭IP>:3000` 으로 바로 접속한다. 계정은 `admin / admin` 이고
 대시보드 `Modbus Slave 에뮬레이터` 가 자동으로 올라온다.
 
+> 패널이 전부 `No data` 에 빨간 삼각형이 뜬다면 데이터소스를 못 찾는 것이다.
+> 대시보드는 데이터소스를 `uid: PROM` 으로 참조하므로
+> `grafana/datasources/prometheus.yml` 의 `uid` 가 같아야 한다.
+> `curl -s -u admin:admin localhost:3000/api/datasources` 로 확인한다.
+
 **Grafana(3000)만 외부에 열린다.** Prometheus(9090), node-exporter(9100),
 에이전트(9101)는 `127.0.0.1` 전용이라 필요하면 SSH 터널로 본다.
 
