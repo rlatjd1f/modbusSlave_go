@@ -319,11 +319,24 @@ EXPIRE liz.stats.server.modbus.network.traffic 9
 - **TTL 9초** (주기 3초 x 3). 에이전트가 죽으면 키가 사라지므로
   소비자가 낡은 값을 실시간 값으로 오인하지 않는다
 
-Redis 주소 등은 환경변수로 바꾼다. 기본값은 `2mtest.liz.com:6379` 다.
+Redis 주소 등은 환경변수로 바꾼다.
 
 ```bash
-REDIS_ADDR=other.host:6379 REDIS_PASSWORD=secret ./slave.sh mon up
+REDIS_ADDR=172.31.x.x:6379 ./slave.sh mon up
 ```
+
+매번 입력하지 않으려면 `monitoring/.env` 에 적어 둔다. compose 가 자동으로 읽고,
+이 파일은 `.gitignore` 에 있어 커밋되지 않으므로 비밀번호를 넣어도 된다.
+
+```bash
+cp monitoring/.env.example monitoring/.env
+vi monitoring/.env
+./slave.sh mon up
+```
+
+> **Redis 주소는 사설 IP 를 쓰는 편이 확실하다.** 같은 VPC 안에 있는데도
+> 퍼블릭 DNS 이름이 외부 경로를 가리켜 닿지 않는 경우가 있다. 실제로
+> `2mtest.liz.com:6379` 는 막히고 사설 IP 로는 붙었다.
 
 | 환경변수 | 기본값 |
 |---|---|
@@ -478,6 +491,35 @@ metrics-agent: 0.52 / 0.52 / 0.52 / 0.52  합계 2.08 Mbps
 
 에이전트는 Docker API 의 원시 바이트 카운터를 읽으므로 이 문제가 없다.
 `./slave.sh mon up` 이 떠 있으면 `top`/`net` 이 자동으로 그쪽을 쓴다.
+
+### Redis 에 붙지 않는다
+
+먼저 어디서 막히는지 가른다.
+
+```bash
+getent hosts <redis-host>                                                  # 이름이 풀리는지
+timeout 3 bash -c 'exec 3<>/dev/tcp/<redis-host>/6379' && echo 열림 || echo 막힘
+docker run --rm redis:7-alpine redis-cli -h <redis-host> -p 6379 PING      # 프로토콜까지
+./slave.sh mon logs metrics-agent                                          # 에이전트가 남긴 오류
+```
+
+| 증상 | 원인 | 조치 |
+|---|---|---|
+| 이름이 안 풀리거나 여러 포트가 동시에 막힘 | 호스트에 아예 못 닿음 | **사설 IP 로 지정**한다. 같은 VPC 면 이게 가장 확실하다 |
+| Connection refused | Redis 가 `bind 127.0.0.1` | Redis 서버에서 `bind 0.0.0.0` 후 재시작 |
+| 타임아웃 | 보안 그룹에 6379 미개방 | Redis 서버 보안 그룹에 에뮬레이터 서버 IP 허용 |
+| `NOAUTH` / `DENIED ... protected mode` | 비밀번호 필요 | `REDIS_PASSWORD` 지정 |
+
+Redis 서버에서 볼 것:
+
+```bash
+sudo ss -ltnp | grep 6379              # 리스닝 주소. 127.0.0.1 이면 외부에서 못 붙는다
+redis-cli CONFIG GET bind
+redis-cli CONFIG GET protected-mode
+sudo tcpdump -ni any port 6379         # 접속 시도가 도착은 하는지
+```
+
+`tcpdump` 에 패킷이 안 보이면 네트워크 경로 문제, 보이는데 거부되면 Redis 설정 문제다.
 
 ### 이미지 빌드 중 `network is unreachable` (IPv6)
 
