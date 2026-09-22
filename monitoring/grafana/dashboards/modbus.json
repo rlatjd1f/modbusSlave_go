@@ -2,36 +2,94 @@
   "title": "Modbus Slave 에뮬레이터",
   "uid": "modbus-slave",
   "tags": [
-    "modbus"
+    "modbus",
+    "emulator"
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
+  "editable": true,
+  "graphTooltip": 1,
   "refresh": "5s",
   "time": {
-    "from": "now-15m",
+    "from": "now-30m",
     "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "collector",
+        "label": "콜렉터",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PROM"
+        },
+        "query": {
+          "qryType": 1,
+          "query": "label_values(modbus_slave_transmit_mbps, collector)",
+          "refId": "collector"
+        },
+        "definition": "label_values(modbus_slave_transmit_mbps, collector)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "refresh": 2,
+        "sort": 1,
+        "options": []
+      }
+    ]
   },
   "panels": [
     {
-      "id": 10,
-      "title": "콜렉터별 아웃바운드",
-      "type": "timeseries",
-      "description": "포트 범위를 monitoring/collectors.conf 로 콜렉터에 대응시켜 묶은 값.",
+      "id": 100,
+      "type": "row",
+      "title": "개요",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "통합 아웃바운드",
+      "description": "슬레이브 전체가 내보내는 트래픽",
       "datasource": {
         "type": "prometheus",
         "uid": "PROM"
       },
       "gridPos": {
         "x": 0,
-        "y": 0,
-        "w": 24,
-        "h": 10
+        "y": 1,
+        "w": 5,
+        "h": 5
       },
       "targets": [
         {
-          "expr": "sum by (collector) (modbus_slave_transmit_mbps)",
-          "legendFormat": "{{collector}}",
+          "expr": "sum(modbus_slave_transmit_mbps{collector=~\"$collector\"})",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -42,14 +100,463 @@
       "fieldConfig": {
         "defaults": {
           "unit": "Mbits",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 700
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "활성 슬레이브",
+      "description": "트래픽이 흐르는 슬레이브 수",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "count(modbus_slave_transmit_mbps{collector=~\"$collector\"} > 0) or vector(0)",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "유휴 슬레이브",
+      "description": "클라이언트가 붙지 않은 슬레이브 수. 0 이 정상이다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "count(modbus_slave_transmit_mbps{collector=~\"$collector\"} == 0) or vector(0)",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "슬레이브 CPU",
+      "description": "사용 중인 vCPU 수. 인스턴스 사이징 기준.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "gridPos": {
+        "x": 13,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "sum(modbus_slave_cpu_vcpu{collector=~\"$collector\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "슬레이브 메모리",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "gridPos": {
+        "x": 17,
+        "y": 1,
+        "w": 3,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "sum(modbus_slave_memory_bytes{collector=~\"$collector\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "장비 CPU",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "콜렉터",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "콜렉터별 아웃바운드",
+      "description": "포트 범위를 monitoring/collectors.conf 로 콜렉터에 대응시켜 묶은 값.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 16,
+        "h": 9
+      },
+      "targets": [
+        {
+          "expr": "sum by (collector) (modbus_slave_transmit_mbps{collector=~\"$collector\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          },
+          "legendFormat": "{{collector}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Mbits",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
             "lineWidth": 1,
-            "fillOpacity": 20,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
             "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
             "stacking": {
               "mode": "normal",
               "group": "A"
+            },
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
@@ -59,6 +566,7 @@
           "displayMode": "table",
           "placement": "right",
           "calcs": [
+            "last",
             "mean",
             "max"
           ],
@@ -72,40 +580,130 @@
     },
     {
       "id": 11,
+      "type": "bargauge",
+      "title": "콜렉터 현재값",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 7,
+        "w": 8,
+        "h": 9
+      },
+      "targets": [
+        {
+          "expr": "sum by (collector) (modbus_slave_transmit_mbps{collector=~\"$collector\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          },
+          "legendFormat": "{{collector}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Mbits",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color",
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "sizing": "auto"
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
       "title": "콜렉터 서버별 아웃바운드",
-      "type": "timeseries",
+      "description": "",
       "datasource": {
         "type": "prometheus",
         "uid": "PROM"
       },
       "gridPos": {
         "x": 0,
-        "y": 10,
+        "y": 16,
         "w": 24,
-        "h": 8
+        "h": 7
       },
       "targets": [
         {
-          "expr": "sum by (server) (modbus_slave_transmit_mbps)",
-          "legendFormat": "{{server}}",
+          "expr": "sum by (server) (modbus_slave_transmit_mbps{collector=~\"$collector\"})",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "PROM"
-          }
+          },
+          "legendFormat": "{{server}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "Mbits",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
             "lineWidth": 1,
-            "fillOpacity": 20,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
             "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
             "stacking": {
               "mode": "normal",
               "group": "A"
+            },
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
@@ -115,6 +713,7 @@
           "displayMode": "table",
           "placement": "right",
           "calcs": [
+            "last",
             "mean",
             "max"
           ],
@@ -127,108 +726,80 @@
       }
     },
     {
-      "id": 1,
-      "title": "통합 아웃바운드 (슬레이브 전체)",
-      "description": "슬레이브 컨테이너 합계와 호스트 NIC 실제 송신량. 두 값이 크게 벌어지면 브리지/NAT 구간을 의심한다.",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PROM"
-      },
+      "id": 102,
+      "type": "row",
+      "title": "슬레이브",
+      "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 23,
         "w": 24,
-        "h": 8
+        "h": 1
       },
-      "targets": [
-        {
-          "expr": "modbus_slave_transmit_mbps_total",
-          "legendFormat": "슬레이브 합계 (에이전트)",
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PROM"
-          }
-        },
-        {
-          "expr": "sum(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[1m])) * 8 / 1e6",
-          "legendFormat": "호스트 NIC",
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PROM"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "Mbits",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "showPoints": "never",
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
+      "panels": []
     },
     {
-      "id": 2,
-      "title": "컨테이너별 아웃바운드",
-      "description": "에이전트가 Docker API 에서 직접 읽은 값. 누적 스택으로 특정 슬레이브만 튀는지 본다.",
+      "id": 20,
       "type": "timeseries",
+      "title": "슬레이브별 아웃바운드",
+      "description": "누적 스택. 특정 슬레이브만 튀거나 빠지는지 본다.",
       "datasource": {
         "type": "prometheus",
         "uid": "PROM"
       },
       "gridPos": {
         "x": 0,
-        "y": 26,
-        "w": 24,
-        "h": 10
+        "y": 24,
+        "w": 16,
+        "h": 11
       },
       "targets": [
         {
-          "expr": "modbus_slave_transmit_mbps",
-          "legendFormat": "{{collector}} · {{port}}",
+          "expr": "modbus_slave_transmit_mbps{collector=~\"$collector\"}",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "PROM"
-          }
+          },
+          "legendFormat": "{{collector}} · {{port}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "Mbits",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
             "lineWidth": 1,
-            "fillOpacity": 20,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
             "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
             "stacking": {
               "mode": "normal",
               "group": "A"
+            },
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
@@ -238,7 +809,7 @@
           "displayMode": "table",
           "placement": "right",
           "calcs": [
-            "mean",
+            "last",
             "max"
           ],
           "showLegend": true
@@ -250,42 +821,221 @@
       }
     },
     {
-      "id": 3,
-      "title": "컨테이너별 인바운드",
+      "id": 21,
+      "type": "table",
+      "title": "슬레이브 상태",
+      "description": "아웃바운드가 0 인 슬레이브는 클라이언트가 붙지 않은 것이다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 24,
+        "w": 8,
+        "h": 11
+      },
+      "targets": [
+        {
+          "expr": "modbus_slave_transmit_mbps{collector=~\"$collector\"}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "container": true,
+              "server_ip": true,
+              "instance": true,
+              "job": true,
+              "server": true
+            },
+            "renameByName": {
+              "Value": "Mbps",
+              "port": "포트",
+              "collector": "콜렉터",
+              "server": "서버"
+            },
+            "indexByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Mbps",
+                "desc": false
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mbps"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "Mbits"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.01
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "포트"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [],
+          "countRows": false
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "슬레이브별 인바운드",
       "description": "요청 12바이트 대 응답 259바이트라 아웃바운드의 1/3 수준이 정상이다.",
-      "type": "timeseries",
       "datasource": {
         "type": "prometheus",
         "uid": "PROM"
       },
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 35,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "modbus_slave_receive_mbps",
-          "legendFormat": "{{collector}} · {{port}}",
+          "expr": "modbus_slave_receive_mbps{collector=~\"$collector\"}",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "PROM"
-          }
+          },
+          "legendFormat": "{{collector}} · {{port}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "Mbits",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
             "lineWidth": 1,
-            "fillOpacity": 20,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
             "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
             "stacking": {
               "mode": "normal",
               "group": "A"
+            },
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
@@ -293,10 +1043,9 @@
       "options": {
         "legend": {
           "displayMode": "table",
-          "placement": "right",
+          "placement": "bottom",
           "calcs": [
-            "mean",
-            "max"
+            "last"
           ],
           "showLegend": true
         },
@@ -307,51 +1056,76 @@
       }
     },
     {
-      "id": 4,
-      "title": "슬레이브 CPU (vCPU)",
-      "description": "인스턴스 사이징 판단 기준.",
+      "id": 23,
       "type": "timeseries",
+      "title": "슬레이브 CPU / 메모리",
+      "description": "",
       "datasource": {
         "type": "prometheus",
         "uid": "PROM"
       },
       "gridPos": {
         "x": 12,
-        "y": 36,
+        "y": 35,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "modbus_slave_cpu_vcpu_total",
-          "legendFormat": "슬레이브 합계",
+          "expr": "sum(modbus_slave_cpu_vcpu{collector=~\"$collector\"})",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "PROM"
-          }
+          },
+          "legendFormat": "CPU (vCPU)"
         },
         {
-          "expr": "count(node_cpu_seconds_total{mode=\"idle\"})",
-          "legendFormat": "장비 vCPU 수",
+          "expr": "sum(modbus_slave_memory_bytes{collector=~\"$collector\"}) / 1e9",
           "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "PROM"
-          }
+          },
+          "legendFormat": "메모리 (GB)"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
             "lineWidth": 1,
             "fillOpacity": 8,
+            "gradientMode": "opacity",
             "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
             "stacking": {
               "mode": "none",
               "group": "A"
+            },
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
@@ -359,9 +1133,9 @@
       "options": {
         "legend": {
           "displayMode": "table",
-          "placement": "right",
+          "placement": "bottom",
           "calcs": [
-            "mean",
+            "last",
             "max"
           ],
           "showLegend": true
@@ -373,10 +1147,23 @@
       }
     },
     {
-      "id": 5,
-      "title": "슬레이브 메모리",
-      "description": "",
+      "id": 103,
+      "type": "row",
+      "title": "장비",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 30,
       "type": "timeseries",
+      "title": "슬레이브 합계 vs 호스트 NIC",
+      "description": "두 값이 크게 벌어지면 브리지·NAT 구간을 의심한다. 단일 소스로는 알 수 없다.",
       "datasource": {
         "type": "prometheus",
         "uid": "PROM"
@@ -389,35 +1176,60 @@
       },
       "targets": [
         {
-          "expr": "modbus_slave_memory_bytes_total",
-          "legendFormat": "슬레이브 합계",
+          "expr": "sum(modbus_slave_transmit_mbps{collector=~\"$collector\"})",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "PROM"
-          }
+          },
+          "legendFormat": "슬레이브 합계 (에이전트)"
         },
         {
-          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
-          "legendFormat": "장비 사용량",
+          "expr": "sum(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[1m])) * 8 / 1e6",
           "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "PROM"
-          }
+          },
+          "legendFormat": "호스트 NIC"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes",
+          "unit": "Mbits",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
             "lineWidth": 1,
             "fillOpacity": 8,
+            "gradientMode": "opacity",
             "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
             "stacking": {
               "mode": "none",
               "group": "A"
+            },
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
@@ -425,8 +1237,9 @@
       "options": {
         "legend": {
           "displayMode": "table",
-          "placement": "right",
+          "placement": "bottom",
           "calcs": [
+            "last",
             "mean",
             "max"
           ],
@@ -439,10 +1252,10 @@
       }
     },
     {
-      "id": 6,
-      "title": "장비 CPU 사용률",
-      "description": "",
+      "id": 31,
       "type": "timeseries",
+      "title": "장비 CPU / 메모리",
+      "description": "",
       "datasource": {
         "type": "prometheus",
         "uid": "PROM"
@@ -456,25 +1269,59 @@
       "targets": [
         {
           "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)",
-          "legendFormat": "전체",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "PROM"
-          }
+          },
+          "legendFormat": "CPU 사용률 (%)"
+        },
+        {
+          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PROM"
+          },
+          "legendFormat": "메모리 사용률 (%)"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
             "lineWidth": 1,
             "fillOpacity": 8,
+            "gradientMode": "opacity",
             "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
             "stacking": {
               "mode": "none",
               "group": "A"
+            },
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
@@ -482,9 +1329,9 @@
       "options": {
         "legend": {
           "displayMode": "table",
-          "placement": "right",
+          "placement": "bottom",
           "calcs": [
-            "mean",
+            "last",
             "max"
           ],
           "showLegend": true
