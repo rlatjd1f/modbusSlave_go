@@ -1,0 +1,96 @@
+# 모니터링 스택. 슬레이브 compose 와 분리해 두어 여기를 재시작해도
+# 슬레이브가 흔들리지 않는다. ../slave.sh mon up 으로 띄운다.
+#
+# Grafana(3000)와 Prometheus(9090)를 인터넷에 열지 말 것. SSH 터널로 접근한다.
+#   ssh -L 3000:localhost:3000 -L 9090:localhost:9090 ubuntu@<서버IP>
+
+services:
+  # 컨테이너별 CPU / 메모리 / 네트워크
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      # 소켓을 명시적으로 걸어준다. /var/run 디렉터리 마운트만으로는
+      # 환경에 따라 cAdvisor 가 도커 컨테이너를 인식하지 못한다.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports: ["127.0.0.1:8080:8080"]
+    mem_limit: 512m
+
+  # 장비 CPU / 메모리 / NIC / 디스크
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    pid: host
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|var/lib/docker)($$|/)'
+    # rslave 전파는 Docker Desktop 에서 거부된다. 여기서는 CPU/메모리/NIC 만 보면 되므로
+    # 단순 읽기 전용으로 마운트한다.
+    volumes: ['/:/host:ro']
+    ports: ["127.0.0.1:9100:9100"]
+    mem_limit: 128m
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      # 디스크 여유가 45GB 라 넉넉히 잡는다. 필요하면 줄인다.
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=10GB'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports: ["127.0.0.1:9090:9090"]
+    mem_limit: 1g
+    depends_on: [cadvisor, node-exporter]
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports: ["127.0.0.1:3000:3000"]
+    mem_limit: 512m
+    depends_on: [prometheus]
+
+  # 아웃바운드 전송률을 3초마다 외부 Redis 해시에 기록한다.
+  # Docker 소켓을 읽어야 해서 root 로 돈다. 소켓은 읽기 전용으로 마운트한다.
+  metrics-agent:
+    image: modbus-slave
+    restart: unless-stopped
+    entrypoint: ["/metrics-agent"]
+    user: "0:0"
+    environment:
+      REDIS_ADDR: ${REDIS_ADDR:-2mtest.liz.com:6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_KEY: ${REDIS_KEY:-liz.stats.server.modbus.network.traffic}
+      NAME_PREFIX: ${NAME_PREFIX:-modbus-slave-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes: ['/var/run/docker.sock:/var/run/docker.sock:ro']
+    ports: ["127.0.0.1:9101:9101"]
+    # 슬레이브 이미지의 HEALTHCHECK 를 상속하면 안 된다. 이 컨테이너는 modbus 를 듣지 않는다.
+    healthcheck:
+      disable: true
+    mem_limit: 64m
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+volumes:
+  prometheus-data:
+  grafana-data:
