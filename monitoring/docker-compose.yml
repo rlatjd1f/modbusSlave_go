@@ -46,9 +46,10 @@ services:
       - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - grafana-data:/var/lib/grafana
-    # 기본은 로컬 바인드. 퍼블릭 IP 로 열려면 GRAFANA_BIND=0.0.0.0 으로 띄운다.
-    # 그 경우 slave.sh 가 기본 비밀번호 사용을 막는다.
-    ports: ["${GRAFANA_BIND:-127.0.0.1}:3000:3000"]
+    # 퍼블릭 IP 로 접속하기 위해 전체 인터페이스에 바인드한다.
+    # 로컬로만 열려면 GRAFANA_BIND=127.0.0.1 로 띄운다.
+    # Prometheus / node-exporter / 에이전트는 계속 127.0.0.1 전용이다.
+    ports: ["${GRAFANA_BIND:-0.0.0.0}:3000:3000"]
     mem_limit: 512m
     depends_on: [prometheus]
 

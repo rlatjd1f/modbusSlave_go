@@ -338,35 +338,29 @@ docker exec -it <redis> redis-cli HGETALL liz.stats.server.modbus.network.traffi
 
 ### Grafana 접속
 
-기본값은 **로컬 바인드**다. Grafana(3000), Prometheus(9090), node-exporter(9100),
-에이전트(9101) 모두 `127.0.0.1` 전용이라 SSH 터널로 본다.
-
-```bash
-ssh -L 3000:localhost:3000 -L 9090:localhost:9090 ubuntu@<서버IP>
-```
-
-브라우저에서 `http://localhost:3000`, 계정은 `admin / admin` 이다.
+`http://<퍼블릭IP>:3000` 으로 바로 접속한다. 계정은 `admin / admin` 이고
 대시보드 `Modbus Slave 에뮬레이터` 가 자동으로 올라온다.
 
-#### 퍼블릭 IP 로 열기
+**Grafana(3000)만 외부에 열린다.** Prometheus(9090), node-exporter(9100),
+에이전트(9101)는 `127.0.0.1` 전용이라 필요하면 SSH 터널로 본다.
 
 ```bash
-GRAFANA_BIND=0.0.0.0 GRAFANA_PASSWORD='<강한 비밀번호>' ./slave.sh mon up
+ssh -L 9090:localhost:9090 ubuntu@<서버IP>
 ```
 
-`http://<퍼블릭IP>:3000` 으로 접속한다. **Grafana 만** 열리고 Prometheus(9090)와
-에이전트(9101)는 계속 `127.0.0.1` 전용으로 남는다.
+**보안 그룹에서 TCP 3000 을 접속할 IP 대역으로 제한할 것.** 기본 계정을
+쓰는 상태라 전체 개방하면 누구나 대시보드에 들어올 수 있다.
 
-두 가지 안전장치가 걸려 있다.
+로컬 전용으로 되돌리거나 비밀번호를 바꾸려면 환경변수를 준다.
 
-1. `GRAFANA_BIND` 가 로컬이 아닌데 `GRAFANA_PASSWORD` 가 비었거나 `admin` 이면
-   **기동을 거부한다.** 퍼블릭 IP 에 `admin/admin` 은 그대로 탈취 경로다.
-2. 기동할 때마다 관리자 비밀번호를 **강제로 다시 설정한다.**
-   `GF_SECURITY_ADMIN_PASSWORD` 는 데이터 볼륨이 처음 만들어질 때만 적용되므로,
-   이미 볼륨이 있으면 환경변수를 바꿔도 예전 비밀번호가 그대로 살아남는다.
+```bash
+GRAFANA_BIND=127.0.0.1 ./slave.sh mon up                  # 로컬 전용
+GRAFANA_PASSWORD='<비밀번호>' ./slave.sh mon up            # 비밀번호 변경
+```
 
-**보안 그룹에서 TCP 3000 을 접속할 IP 대역으로 반드시 제한할 것.**
-전체 개방하면 대시보드가 인터넷에 그대로 노출된다.
+> `GF_SECURITY_ADMIN_PASSWORD` 는 데이터 볼륨이 처음 만들어질 때만 적용된다.
+> 이미 볼륨이 있으면 환경변수를 바꿔도 예전 비밀번호가 그대로 살아남기 때문에,
+> `GRAFANA_PASSWORD` 를 주면 기동할 때마다 강제로 다시 설정한다.
 
 ### 네트워크 측정을 두 경로로 두는 이유
 
@@ -425,7 +419,7 @@ docker run -d -p 502:5020 modbus-slave --port 5020 --log-level debug
 ```
 인바운드 TCP 502-521  <- 마스터 쪽 CIDR 만 허용
 인바운드 TCP 22       <- 관리 접속
-인바운드 TCP 3000     <- Grafana. 퍼블릭으로 열 때만. 접속할 IP 대역으로 제한
+인바운드 TCP 3000     <- Grafana. 접속할 IP 대역으로 제한 (기본 계정 사용 중)
 ```
 
 AWS 보안 그룹이든 `firewalld` 든 **소스를 마스터 대역으로 제한**한다.

@@ -267,16 +267,7 @@ cmd_mon() {
 	case "$sub" in
 	up)
 		ensure_binary /metrics-agent
-		bind="${GRAFANA_BIND:-127.0.0.1}"
-		# 퍼블릭으로 열면서 기본 비밀번호를 쓰면 그대로 탈취 경로가 된다.
-		if [ "$bind" != "127.0.0.1" ] && [ "$bind" != "localhost" ]; then
-			case "${GRAFANA_PASSWORD:-}" in
-			'' | admin)
-				die "GRAFANA_BIND=$bind 로 외부에 열려면 GRAFANA_PASSWORD 를 기본값이 아닌 값으로 지정해야 합니다.
-  예: GRAFANA_BIND=0.0.0.0 GRAFANA_PASSWORD='<강한 비밀번호>' ./slave.sh mon up"
-				;;
-			esac
-		fi
+		bind="${GRAFANA_BIND:-0.0.0.0}"
 		echo "==> 모니터링 스택 기동 (Grafana 바인드: $bind)"
 		mdc up -d --remove-orphans
 
@@ -298,17 +289,16 @@ cmd_mon() {
 		fi
 		echo
 		if [ "$bind" = "127.0.0.1" ] || [ "$bind" = "localhost" ]; then
-			echo "  Grafana     http://localhost:3000  (admin / \${GRAFANA_PASSWORD:-admin})"
+			echo "  Grafana     http://localhost:3000  (admin / ${GRAFANA_PASSWORD:-admin})"
 			echo "  Prometheus  http://localhost:9090"
 			echo
-			echo "  모두 127.0.0.1 에만 바인드되어 있다. 원격에서 보려면 SSH 터널을 쓴다:"
-			echo "    ssh -L 3000:localhost:3000 -L 9090:localhost:9090 \$USER@<서버IP>"
+			echo "  SSH 터널로 접속: ssh -L 3000:localhost:3000 $USER@<서버IP>"
 		else
-			echo "  Grafana     http://<퍼블릭IP>:3000  (admin / 지정한 비밀번호)"
+			echo "  Grafana     http://<퍼블릭IP>:3000  (admin / ${GRAFANA_PASSWORD:-admin})"
 			echo
 			echo "  Grafana 만 외부에 열려 있다. Prometheus(9090)와 에이전트(9101)는"
 			echo "  계속 127.0.0.1 전용이다."
-			echo "  보안 그룹에서 TCP 3000 을 접속할 IP 대역으로 반드시 제한할 것."
+			echo "  보안 그룹에서 TCP 3000 을 접속할 IP 대역으로 제한할 것."
 		fi
 		;;
 	down) mdc down ;;
