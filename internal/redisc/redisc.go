@@ -100,6 +100,21 @@ func IsAuthError(err error) bool {
 	return false
 }
 
+// Del 은 키를 지운다.
+// 해시 필드 구성이 바뀌었을 때 예전 필드가 남는 것을 막기 위해 기동 시 한 번 호출한다.
+// HSET 은 기존 필드를 지우지 않고, TTL 이 매 주기 갱신되므로 놔두면 영원히 남는다.
+func (c *Client) Del(key string) error {
+	if err := c.connect(); err != nil {
+		return err
+	}
+	_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
+	if _, err := c.do("DEL", key); err != nil {
+		c.Close()
+		return fmt.Errorf("DEL 실패: %w", err)
+	}
+	return nil
+}
+
 // Publish 는 필드 맵을 해시에 쓰고 TTL 을 건다.
 // HSET 과 EXPIRE 를 한 번에 보내고 응답 두 개를 읽는 파이프라인이다.
 // 어떤 단계든 실패하면 연결을 버려서 다음 호출이 새로 연결하게 한다.

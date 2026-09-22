@@ -23,26 +23,19 @@ func TestFieldName(t *testing.T) {
 }
 
 func TestBuildFields(t *testing.T) {
+	// Redis 에는 통합값만 싣는다. 슬레이브별 값은 Prometheus 로 나간다.
 	fields := buildFields(map[string]sample{
 		"modbus-slave-503": {TxMbps: 0.874},
 		"modbus-slave-502": {TxMbps: 0.862},
 	})
-	// 포트 오름차순 + total + ts
-	if len(fields) != 8 {
-		t.Fatalf("필드 수 %d, want 8: %v", len(fields), fields)
+	if len(fields) != 4 {
+		t.Fatalf("필드 수 %d, want 4: %v", len(fields), fields)
 	}
-	if fields[0] != "502" || fields[1] != "0.862" {
-		t.Errorf("첫 필드 %q=%q, want 502=0.862", fields[0], fields[1])
+	if fields[0] != "total" || fields[1] != "1.736" {
+		t.Errorf("total = %q=%q, want total=1.736", fields[0], fields[1])
 	}
-	if fields[2] != "503" || fields[3] != "0.874" {
-		t.Errorf("둘째 필드 %q=%q, want 503=0.874", fields[2], fields[3])
-	}
-	// total 은 개별 값의 합이며 항상 함께 보낸다.
-	if fields[4] != "total" || fields[5] != "1.736" {
-		t.Errorf("total = %q, want 1.736", fields[5])
-	}
-	if fields[6] != "ts" || fields[7] == "" {
-		t.Errorf("ts 누락: %v", fields[6:])
+	if fields[2] != "ts" || fields[3] == "" {
+		t.Errorf("ts 누락: %v", fields[2:])
 	}
 }
 

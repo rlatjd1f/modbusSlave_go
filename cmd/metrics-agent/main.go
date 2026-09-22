@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -100,6 +99,13 @@ func run() int {
 	// 첫 표본은 기준점만 잡는다. 차이를 낼 이전 값이 없으므로 전송하지 않는다.
 	if err := s.prime(ctx); err != nil {
 		log.Error("첫 표본 수집 실패", "err", err)
+	}
+
+	// 예전 버전이 남긴 포트별 필드를 한 번 정리한다.
+	// HSET 은 기존 필드를 건드리지 않고 TTL 은 매 주기 갱신되므로,
+	// 지우지 않으면 낡은 값이 키에 영원히 남는다.
+	if err := rdb.Del(cfg.key); err != nil {
+		log.Warn("기존 키 정리 실패 (계속 진행)", "key", cfg.key, "err", err)
 	}
 
 	ticker := time.NewTicker(cfg.interval)
@@ -233,26 +239,14 @@ func (s *sampler) measure(ctx context.Context) (map[string]sample, error) {
 const redisDecimals = 3
 
 // buildFields 는 Redis 해시에 쓸 이름/값 쌍을 만든다.
-// 필드 이름은 컨테이너 이름에서 접두사를 뗀 값(= 호스트 포트)이고,
-// 값은 아웃바운드 Mbps 다. 여기에 전체 합계 total 과 갱신 시각 ts 를 더한다.
+//
+// 전체 통합 아웃바운드(total)와 갱신 시각(ts)만 싣는다.
+// 슬레이브별 값은 Prometheus 로 노출되어 Grafana 에서 본다.
 func buildFields(samples map[string]sample) []string {
-	names := make([]string, 0, len(samples))
-	for n := range samples {
-		names = append(names, n)
+	return []string{
+		"total", strconv.FormatFloat(totalOf(samples), 'f', redisDecimals, 64),
+		"ts", strconv.FormatInt(time.Now().Unix(), 10),
 	}
-	sort.Strings(names)
-
-	fields := make([]string, 0, len(names)*2+4)
-	var total float64
-	for _, n := range names {
-		fields = append(fields, fieldName(n),
-			strconv.FormatFloat(samples[n].TxMbps, 'f', redisDecimals, 64))
-		total += samples[n].TxMbps
-	}
-	fields = append(fields,
-		"total", strconv.FormatFloat(total, 'f', redisDecimals, 64),
-		"ts", strconv.FormatInt(time.Now().Unix(), 10))
-	return fields
 }
 
 // fieldName 은 "modbus-slave-502" 에서 "502" 를 뽑는다.

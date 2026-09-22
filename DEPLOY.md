@@ -306,18 +306,22 @@ Graviton 은 이보다 2~2.5배 높게 나올 것으로 예상한다. 실제 값
 
 ### Redis 연동
 
-아웃바운드 전송률을 **3초마다** 해시 하나에 쓴다.
+**전체 통합 아웃바운드**를 3초마다 쓴다. 슬레이브별 값은 싣지 않는다.
 
 ```
-HSET liz.stats.server.modbus.network.traffic 502 0.416 503 0.416 ... total 41.203 ts 1758500000
+HSET liz.stats.server.modbus.network.traffic total 41.203 ts 1758500000
 EXPIRE liz.stats.server.modbus.network.traffic 9
 ```
 
-- 필드 이름은 **호스트 포트**, 값은 **아웃바운드 Mbps 소수점 3자리**
-- `total` — 전체 통합 아웃바운드. 개별 값과 항상 함께 보낸다
+- `total` — 전체 통합 아웃바운드 **Mbps, 소수점 3자리**
 - `ts` — 갱신 시각(unix). 소비하는 쪽이 신선도를 직접 판단할 수 있다
 - **TTL 9초** (주기 3초 x 3). 에이전트가 죽으면 키가 사라지므로
   소비자가 낡은 값을 실시간 값으로 오인하지 않는다
+
+슬레이브별 값은 Prometheus 로 노출되어 Grafana 에서 본다(`:9101/metrics`).
+
+> 에이전트는 기동할 때 이 키를 한 번 `DEL` 한다. 예전 버전이 남긴 포트별 필드는
+> `HSET` 으로 덮이지 않고, TTL 이 매 주기 갱신되므로 지우지 않으면 영원히 남는다.
 
 접속 정보는 `monitoring/.env` 에 적어 둔다. compose 가 자동으로 읽는다.
 이 파일은 `.gitignore` 에 있어 커밋되지 않고, 비밀번호가 명령 히스토리에도 남지 않는다.
@@ -348,21 +352,22 @@ REDIS_ADDR=172.31.x.x:6379 ./slave.sh mon up
 **Redis 가 끊겨도 슬레이브에는 영향이 없다.** 에이전트는 로그만 남기고 다음
 주기에 재시도하며, 복구되면 `Redis 전송 복구` 를 남긴다.
 
-Redis 서버에서 보기 좋게 확인하려면:
+Redis 서버에서 확인하려면:
 
 ```bash
-redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning HGETALL liz.stats.server.modbus.network.traffic | paste - - | awk -v now=$(date +%s) '$1~/^[0-9]+$/{p[++n]=$1;v[$1]=$2;if($2+0==0)idle++;next} $1=="total"{t=$2} $1=="ts"{ts=$2} END{for(i=1;i<n;i++)for(j=i+1;j<=n;j++)if(p[i]+0>p[j]+0){x=p[i];p[i]=p[j];p[j]=x} printf "  %-6s %10s\n  %s\n","포트","Mbps","--------------------"; for(i=1;i<=n;i++)printf "  %-6s %10.3f%s\n",p[i],v[p[i]],(v[p[i]]+0==0?"   <- 유휴":""); printf "  %s\n  %-6s %10.3f\n\n","--------------------","합계",t; printf "  슬레이브 %d대 · 유휴 %d대 · %d초 전 갱신\n",n,idle,now-ts}'
+redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning HGETALL liz.stats.server.modbus.network.traffic
 ```
 
-```
-  포트         Mbps
-  --------------------
-  502         0.416
-  506         0.000   <- 유휴
-  --------------------
-  합계        1.664
+값과 신선도를 함께 보려면:
 
-  슬레이브 5대 · 유휴 1대 · 2초 전 갱신
+```bash
+redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning HMGET liz.stats.server.modbus.network.traffic total ts | paste - - | awk -v now=$(date +%s) '{printf "  통합 아웃바운드 %.3f Mbps  (%d초 전 갱신)\n", $1, now-$2}'
+```
+
+3초마다 반복해서 보려면:
+
+```bash
+redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning -r -1 -i 3 HGET liz.stats.server.modbus.network.traffic total
 ```
 
 `systime()` 대신 `date` 값을 넘기는 이유는 mawk 처럼 그 함수가 없는 awk 가 있기 때문이다.
