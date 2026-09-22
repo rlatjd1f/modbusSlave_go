@@ -1,0 +1,35 @@
+# 5초 간격. Redis 연동(3초)과 맞출 필요는 없다 — Prometheus 는 이력/그래프용이다.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # 컨테이너별 CPU / 메모리 / 네트워크
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+    # cAdvisor 는 컨테이너당 수백 개의 시계열을 뱉는다.
+    # 실제로 보는 것만 남겨 저장량을 1/5 수준으로 줄인다.
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'container_(network_(receive|transmit)_bytes_total|cpu_usage_seconds_total|memory_working_set_bytes|last_seen)'
+        action: keep
+      # 이름 없는 cgroup 항목은 버린다.
+      - source_labels: [name]
+        regex: '^$'
+        action: drop
+
+  # 슬레이브 아웃바운드 트래픽. Docker API 를 직접 읽으므로
+  # cAdvisor 가 호스트 cgroup 을 인식하지 못하는 환경에서도 동작한다.
+  - job_name: metrics-agent
+    static_configs:
+      - targets: ['metrics-agent:9101']
+
+  # 장비 CPU / 메모리 / NIC / 디스크
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

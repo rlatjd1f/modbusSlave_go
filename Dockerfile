@@ -6,6 +6,8 @@ WORKDIR /src
 COPY go.mod ./
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/modbus-slave ./cmd/modbus-slave
+# metrics-agent 는 같은 이미지에 함께 담는다. monitoring compose 가 entrypoint 를 바꿔 실행한다.
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/metrics-agent ./cmd/metrics-agent
 # 상태 파일 디렉터리. scratch 이미지에는 셸이 없어 런타임에 만들 수 없으므로
 # 빌드 단계에서 비어 있는 디렉터리를 만들어 소유권과 함께 복사한다.
 RUN mkdir -p /out/state && chown 65534:65534 /out/state
@@ -13,6 +15,7 @@ RUN mkdir -p /out/state && chown 65534:65534 /out/state
 # --- runtime ---
 FROM scratch
 COPY --from=build /out/modbus-slave /modbus-slave
+COPY --from=build /out/metrics-agent /metrics-agent
 COPY --from=build --chown=65534:65534 /out/state /run/modbus
 
 USER 65534:65534

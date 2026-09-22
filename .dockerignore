@@ -8,4 +8,5 @@ README.md
 PLAN.md
 bin/
 scripts/
+monitoring/
 **/*_test.go

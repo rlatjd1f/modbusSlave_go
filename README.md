@@ -26,6 +26,7 @@ docker run -d -p 5020:5020 modbus-slave --port 5020
 ./slave.sh top             # CPU/메모리/송수신 실시간 갱신
 ./slave.sh restart         # 전체 재시작
 ./slave.sh down            # 전체 중지
+./slave.sh mon up          # 모니터링 + Redis 연동 (Prometheus/Grafana/exporter)
 ```
 
 ```bash

@@ -276,7 +276,93 @@ Graviton 은 이보다 2~2.5배 높게 나올 것으로 예상한다. 실제 값
 
 ---
 
-## 8. 운영
+## 8. 모니터링과 Redis 연동
+
+`monitoring/` 에 별도 compose 로 두었다. 슬레이브와 분리되어 있어 여기를
+재시작해도 슬레이브 컨테이너는 흔들리지 않는다.
+
+```bash
+./slave.sh mon up      # 기동
+./slave.sh mon ps      # 상태
+./slave.sh mon logs    # 로그
+./slave.sh mon down    # 중지
+```
+
+| 구성요소 | 역할 | 실측 메모리 |
+|---|---|---|
+| metrics-agent | Docker API 를 읽어 Redis 적재 + Prometheus 노출 | 8 MiB |
+| cAdvisor | 컨테이너 CPU / 메모리 / 네트워크 | 24 MiB |
+| node-exporter | 장비 CPU / 메모리 / NIC / 디스크 | 9 MiB |
+| Prometheus | 수집·저장 (30일 / 최대 10GB) | 28 MiB |
+| Grafana | 대시보드 | 80 MiB |
+
+### Redis 연동
+
+아웃바운드 전송률을 **3초마다** 해시 하나에 쓴다.
+
+```
+HSET liz.stats.server.modbus.network.traffic 502 0.86 503 0.87 ... total 41.20 ts 1758500000
+EXPIRE liz.stats.server.modbus.network.traffic 9
+```
+
+- 필드 이름은 **호스트 포트**, 값은 Mbps 소수점 2자리
+- `total` — 전체 통합 아웃바운드
+- `ts` — 갱신 시각(unix). 소비하는 쪽이 신선도를 직접 판단할 수 있다
+- **TTL 9초** (주기 3초 x 3). 에이전트가 죽으면 키가 사라지므로
+  소비자가 낡은 값을 실시간 값으로 오인하지 않는다
+
+Redis 주소 등은 환경변수로 바꾼다. 기본값은 `2mtest.liz.com:6379` 다.
+
+```bash
+REDIS_ADDR=other.host:6379 REDIS_PASSWORD=secret ./slave.sh mon up
+```
+
+| 환경변수 | 기본값 |
+|---|---|
+| `REDIS_ADDR` | `2mtest.liz.com:6379` |
+| `REDIS_PASSWORD` | (없음) |
+| `REDIS_DB` | `0` |
+| `REDIS_KEY` | `liz.stats.server.modbus.network.traffic` |
+| `GRAFANA_PASSWORD` | `admin` |
+
+**Redis 가 끊겨도 슬레이브에는 영향이 없다.** 에이전트는 로그만 남기고 다음
+주기에 재시도하며, 복구되면 `Redis 전송 복구` 를 남긴다.
+
+```bash
+docker exec -it <redis> redis-cli HGETALL liz.stats.server.modbus.network.traffic
+```
+
+### Grafana
+
+**절대 인터넷에 열지 말 것.** Grafana(3000), Prometheus(9090), cAdvisor(8080),
+node-exporter(9100), 에이전트(9101) 모두 `127.0.0.1` 에만 바인드했다.
+원격에서 볼 때는 SSH 터널을 쓴다.
+
+```bash
+ssh -L 3000:localhost:3000 -L 9090:localhost:9090 ubuntu@<서버IP>
+```
+
+브라우저에서 `http://localhost:3000`, 초기 계정은 `admin / admin` 이다.
+대시보드 `Modbus Slave 에뮬레이터` 가 자동으로 올라온다.
+
+### 네트워크 측정을 두 경로로 두는 이유
+
+통합 아웃바운드 패널은 **에이전트 값과 호스트 NIC 값을 함께** 그린다.
+
+- 에이전트: Docker API 의 컨테이너별 송신 카운터
+- node-exporter: 장비 NIC 의 실제 송신량
+
+두 값이 크게 벌어지면 브리지·NAT 구간을 의심할 근거가 된다. 단일 소스만 보면
+알 수 없다.
+
+컨테이너별 네트워크를 **cAdvisor 가 아니라 에이전트에서** 받는 것도 의도적이다.
+cAdvisor 는 호스트 cgroup 접근에 의존해 환경에 따라 컨테이너를 인식하지 못하는데,
+에이전트는 Docker API 를 직접 읽으므로 그 영향을 받지 않는다. cAdvisor 는
+CPU·메모리·디스크 쪽을 보완한다.
+
+---
+
+## 9. 운영
 
 ```bash
 ./slave.sh ps                 # 상태 + healthy 개수
@@ -311,7 +397,7 @@ docker run -d -p 502:5020 modbus-slave --port 5020 --log-level debug
 
 ---
 
-## 9. 방화벽 / 보안 그룹
+## 10. 방화벽 / 보안 그룹
 
 ```
 인바운드 TCP 502-521  <- 마스터 쪽 CIDR 만 허용
@@ -323,7 +409,7 @@ AWS 보안 그룹이든 `firewalld` 든 **소스를 마스터 대역으로 제�
 
 ---
 
-## 10. 하지 말 것
+## 11. 하지 말 것
 
 | 항목 | 이유 |
 |---|---|
@@ -335,7 +421,7 @@ AWS 보안 그룹이든 `firewalld` 든 **소스를 마스터 대역으로 제�
 
 ---
 
-## 11. 트러블슈팅
+## 12. 트러블슈팅
 
 ### 이미지 빌드 중 `network is unreachable` (IPv6)
 
@@ -379,7 +465,7 @@ id -nG | tr ' ' '\n' | grep -x docker
 
 ---
 
-## 12. 체크리스트
+## 13. 체크리스트
 
 - [ ] Docker 설치 및 `usermod` 후 재접속
 - [ ] `/etc/docker/daemon.json` 에 `userland-proxy: false`, Docker 재시작
@@ -390,3 +476,5 @@ id -nG | tr ' ' '\n' | grep -x docker
 - [ ] 마스터가 **Unit ID 1 / FC03 / 125개 단위 분할**로 보내는지 확인
 - [ ] 별도 장비에서 `make load` 실행, 주기 초과 0 확인
 - [ ] `docker stats` 로 CPU·메모리가 기준값 범위인지 확인
+- [ ] `./slave.sh mon up` 후 Prometheus 타깃 4개가 전부 `up`
+- [ ] Redis 에 `liz.stats.server.modbus.network.traffic` 해시가 3초마다 갱신되는지

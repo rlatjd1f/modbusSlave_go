@@ -348,11 +348,15 @@ Go 1.26 은 cgroup CPU 제한을 읽어 GOMAXPROCS 를 맞춘다 (측정: 제한
 ```
 modbus_slave/
 ├── cmd/modbus-slave/main.go
+├── cmd/metrics-agent/             아웃바운드 전송률 -> Redis + Prometheus
 ├── internal/config/               설정 파싱 및 검증
 ├── internal/modbus/               MBAP 프레임, PDU, FC 디스패치 테이블
 ├── internal/server/               리스너, 커넥션 수명, 요청 루프
 ├── internal/health/               healthcheck 모드
 ├── internal/state/                실효 설정 상태 파일
+├── internal/dockerapi/            Docker 엔진 API 최소 래퍼
+├── internal/redisc/               RESP 기반 최소 Redis 클라이언트
+├── monitoring/                    Prometheus / Grafana / exporter / 에이전트
 ├── slave.sh                       운영 진입점 (up/ps/net/top/restart/logs/down/update)
 ├── scripts/gen-compose.sh         포트 범위만큼 compose 생성
 ├── scripts/probe.go               단발 요청 확인용 최소 클라이언트

@@ -14,6 +14,10 @@
 #   ./slave.sh down              전체 중지 및 삭제
 #   ./slave.sh build             이미지 재빌드
 #   ./slave.sh update            git pull + 재빌드 + 반영
+#   ./slave.sh mon up            모니터링 스택 기동 (Prometheus/Grafana/exporter/Redis 에이전트)
+#   ./slave.sh mon down          모니터링 스택 중지
+#   ./slave.sh mon ps            모니터링 스택 상태
+#   ./slave.sh mon logs          모니터링 스택 로그
 #
 # 환경변수로 조정: REGS(1000) MAXCONNS(256) MEMLIMIT(32m) IMAGE(modbus-slave)
 #   REGS=2000 ./slave.sh up 502-521
@@ -237,6 +241,36 @@ cmd_top() {
 	done
 }
 
+MONFILE="monitoring/docker-compose.yml"
+
+# 모니터링 스택은 슬레이브와 별도 compose 로 둔다.
+# 여기를 재시작해도 슬레이브 컨테이너가 흔들리지 않아야 한다.
+cmd_mon() {
+	[ -f "$MONFILE" ] || die "$MONFILE 이 없습니다."
+	sub="${1:-ps}"
+	[ $# -gt 0 ] && shift
+	mdc() { docker compose -f "$MONFILE" "$@"; }
+
+	case "$sub" in
+	up)
+		ensure_image
+		echo "==> 모니터링 스택 기동"
+		mdc up -d --remove-orphans
+		echo
+		echo "  Grafana     http://localhost:3000  (admin / \${GRAFANA_PASSWORD:-admin})"
+		echo "  Prometheus  http://localhost:9090"
+		echo
+		echo "  모두 127.0.0.1 에만 바인드되어 있다. 원격에서 보려면 SSH 터널을 쓴다:"
+		echo "    ssh -L 3000:localhost:3000 -L 9090:localhost:9090 \$USER@<서버IP>"
+		;;
+	down) mdc down ;;
+	ps | status) mdc ps ;;
+	logs) mdc logs --tail 50 -f "$@" ;;
+	restart) mdc restart "$@" ;;
+	*) die "mon 하위 명령: up | down | ps | logs | restart (받은 값: $sub)" ;;
+	esac
+}
+
 cmd_build() {
 	echo "==> 이미지 빌드"
 	docker build -t "$IMAGE" .
@@ -279,6 +313,7 @@ logs)
 	;;
 build) cmd_build ;;
 update) cmd_update ;;
+mon) cmd_mon "$@" ;;
 -h | --help | help) usage 0 ;;
 *) die "알 수 없는 명령: $CMD (./slave.sh --help)" ;;
 esac
