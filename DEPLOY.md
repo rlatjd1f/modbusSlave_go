@@ -319,10 +319,19 @@ EXPIRE liz.stats.server.modbus.network.traffic 9
 - **TTL 9초** (주기 3초 x 3). 에이전트가 죽으면 키가 사라지므로
   소비자가 낡은 값을 실시간 값으로 오인하지 않는다
 
-Redis 주소 등은 환경변수로 바꾼다. 기본값은 `2mtest.liz.com:6379` 다.
+접속 정보는 `monitoring/.env` 에 적어 둔다. compose 가 자동으로 읽는다.
+이 파일은 `.gitignore` 에 있어 커밋되지 않고, 비밀번호가 명령 히스토리에도 남지 않는다.
 
 ```bash
-REDIS_ADDR=172.31.x.x:6379 REDIS_PASSWORD=secret ./slave.sh mon up
+cp monitoring/.env.example monitoring/.env
+vi monitoring/.env          # REDIS_PASSWORD 등
+./slave.sh mon up
+```
+
+한 번만 다르게 띄울 때는 환경변수로 덮어써도 된다.
+
+```bash
+REDIS_ADDR=172.31.x.x:6379 ./slave.sh mon up
 ```
 
 > **닿지 않으면 사설 IP 를 먼저 시도한다.** 같은 VPC 안에 있는데도 퍼블릭 DNS
@@ -498,7 +507,13 @@ docker run --rm redis:7-alpine redis-cli -h <redis-host> -p 6379 PING      # 프
 | 이름이 안 풀리거나 여러 포트가 동시에 막힘 | 호스트에 아예 못 닿음 | **사설 IP 로 지정**한다. 같은 VPC 면 이게 가장 확실하다 |
 | Connection refused | Redis 가 `bind 127.0.0.1` | Redis 서버에서 `bind 0.0.0.0` 후 재시작 |
 | 타임아웃 | 보안 그룹에 6379 미개방 | Redis 서버 보안 그룹에 에뮬레이터 서버 IP 허용 |
-| `NOAUTH` / `DENIED ... protected mode` | 비밀번호 필요 | `REDIS_PASSWORD` 지정 |
+| `NOAUTH` / `unauthenticated multibulk length` | 비밀번호 필요 | `monitoring/.env` 에 `REDIS_PASSWORD` 지정 |
+| `WRONGPASS` | 비밀번호 불일치 | `REDIS_PASSWORD` 값 확인 |
+
+> `ERR Protocol error: unauthenticated multibulk length` 는 인증이 필요하다는 뜻이다.
+> Redis 는 인증 전 연결에서 인자 10개가 넘는 명령을 거부하는데, 슬레이브가 많으면
+> `HSET` 인자가 100개를 넘어 여기에 걸린다. 에이전트는 접속 직후 `PING` 을 먼저
+> 보내 이 경우를 `NOAUTH` 로 먼저 드러낸다.
 
 Redis 서버에서 볼 것:
 

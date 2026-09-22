@@ -48,10 +48,14 @@ func (c *Client) connect() error {
 	}
 	c.conn = conn
 	c.r = bufio.NewReader(conn)
+	_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
 
 	if c.password != "" {
 		if _, err := c.do("AUTH", c.password); err != nil {
 			c.Close()
+			if IsAuthError(err) {
+				return fmt.Errorf("Redis 비밀번호가 맞지 않습니다: %w", err)
+			}
 			return fmt.Errorf("AUTH 실패: %w", err)
 		}
 	}
@@ -61,7 +65,39 @@ func (c *Client) connect() error {
 			return fmt.Errorf("SELECT %d 실패: %w", c.db, err)
 		}
 	}
+
+	// 인증이 필요한데 비밀번호를 주지 않은 경우를 여기서 잡는다.
+	// 인자가 많은 명령(HSET)으로 먼저 부딪히면 Redis 가
+	// "Protocol error: unauthenticated multibulk length" 라는 알아보기 힘든
+	// 오류를 돌려준다. 인자 하나짜리 PING 은 NOAUTH 를 그대로 보여준다.
+	if _, err := c.do("PING"); err != nil {
+		c.Close()
+		if IsAuthError(err) {
+			return fmt.Errorf("Redis 가 인증을 요구합니다. REDIS_PASSWORD 를 지정하세요 (%w)", err)
+		}
+		return fmt.Errorf("PING 실패: %w", err)
+	}
 	return nil
+}
+
+// IsAuthError 는 인증 때문에 거부된 응답인지 판정한다.
+// Redis 는 상황에 따라 서로 다른 문구를 쓴다.
+func IsAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToUpper(err.Error())
+	for _, k := range []string{
+		"NOAUTH",          // 인증 필요
+		"WRONGPASS",       // 비밀번호 불일치
+		"UNAUTHENTICATED", // 인증 전 다중 인자 명령 거부
+		"INVALID PASSWORD",
+	} {
+		if strings.Contains(msg, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // Publish 는 필드 맵을 해시에 쓰고 TTL 을 건다.
@@ -93,19 +129,6 @@ func (c *Client) Publish(key string, fields []string, ttl time.Duration) error {
 			c.Close()
 			return fmt.Errorf("응답 오류: %w", err)
 		}
-	}
-	return nil
-}
-
-// Ping 은 연결 확인용이다.
-func (c *Client) Ping() error {
-	if err := c.connect(); err != nil {
-		return err
-	}
-	_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
-	if _, err := c.do("PING"); err != nil {
-		c.Close()
-		return err
 	}
 	return nil
 }

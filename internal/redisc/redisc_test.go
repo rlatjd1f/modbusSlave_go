@@ -2,6 +2,7 @@ package redisc
 
 import (
 	"bufio"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -63,5 +64,35 @@ func TestPublishRejectsOddFields(t *testing.T) {
 	}
 	if err := c.Publish("k", nil, 9); err == nil {
 		t.Fatal("빈 필드인데 오류 없음")
+	}
+}
+
+func TestIsAuthError(t *testing.T) {
+	auth := []string{
+		"NOAUTH Authentication required.",
+		"WRONGPASS invalid username-password pair",
+		"ERR Protocol error: unauthenticated multibulk length",
+		"ERR invalid password",
+	}
+	for _, m := range auth {
+		if !IsAuthError(errors.New(m)) {
+			t.Errorf("IsAuthError(%q) = false, want true", m)
+		}
+	}
+	other := []string{
+		// 서버에 비밀번호가 없는데 AUTH 를 보낸 경우. 원문이 이미 설명적이라
+		// 별도 문구로 감싸지 않고 그대로 보여준다.
+		"ERR Client sent AUTH, but no password is set.",
+		"ERR unknown command",
+		"LOADING Redis is loading the dataset in memory",
+		"connection refused",
+	}
+	for _, m := range other {
+		if IsAuthError(errors.New(m)) {
+			t.Errorf("IsAuthError(%q) = true, want false", m)
+		}
+	}
+	if IsAuthError(nil) {
+		t.Error("IsAuthError(nil) = true, want false")
 	}
 }
