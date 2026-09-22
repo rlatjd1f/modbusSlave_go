@@ -15,6 +15,8 @@
 #   ./slave.sh build             이미지 재빌드
 #   ./slave.sh update            git pull + 재빌드 + 반영
 #   ./slave.sh mon up            모니터링 스택 기동 (Prometheus/Grafana/exporter/Redis 에이전트)
+#                                퍼블릭 IP 로 열려면:
+#                                GRAFANA_BIND=0.0.0.0 GRAFANA_PASSWORD='<비밀번호>' ./slave.sh mon up
 #   ./slave.sh mon down          모니터링 스택 중지
 #   ./slave.sh mon ps            모니터링 스택 상태
 #   ./slave.sh mon logs          모니터링 스택 로그
@@ -265,14 +267,49 @@ cmd_mon() {
 	case "$sub" in
 	up)
 		ensure_binary /metrics-agent
-		echo "==> 모니터링 스택 기동"
+		bind="${GRAFANA_BIND:-127.0.0.1}"
+		# 퍼블릭으로 열면서 기본 비밀번호를 쓰면 그대로 탈취 경로가 된다.
+		if [ "$bind" != "127.0.0.1" ] && [ "$bind" != "localhost" ]; then
+			case "${GRAFANA_PASSWORD:-}" in
+			'' | admin)
+				die "GRAFANA_BIND=$bind 로 외부에 열려면 GRAFANA_PASSWORD 를 기본값이 아닌 값으로 지정해야 합니다.
+  예: GRAFANA_BIND=0.0.0.0 GRAFANA_PASSWORD='<강한 비밀번호>' ./slave.sh mon up"
+				;;
+			esac
+		fi
+		echo "==> 모니터링 스택 기동 (Grafana 바인드: $bind)"
 		mdc up -d --remove-orphans
+
+		# GF_SECURITY_ADMIN_PASSWORD 는 볼륨이 처음 만들어질 때만 적용된다.
+		# 이미 만들어진 볼륨이 있으면 admin/admin 이 그대로 살아 있으므로,
+		# 비밀번호가 지정되면 매번 강제로 다시 설정한다.
+		if [ -n "${GRAFANA_PASSWORD:-}" ]; then
+			i=0
+			while [ "$i" -lt 30 ]; do
+				if mdc exec -T grafana grafana cli admin reset-admin-password \
+					"$GRAFANA_PASSWORD" >/dev/null 2>&1; then
+					echo "==> Grafana 관리자 비밀번호 적용됨"
+					break
+				fi
+				sleep 2
+				i=$((i + 1))
+			done
+			[ "$i" -lt 30 ] || echo "  경고: 비밀번호 적용에 실패했습니다. 'mon logs grafana' 를 확인하세요." >&2
+		fi
 		echo
-		echo "  Grafana     http://localhost:3000  (admin / \${GRAFANA_PASSWORD:-admin})"
-		echo "  Prometheus  http://localhost:9090"
-		echo
-		echo "  모두 127.0.0.1 에만 바인드되어 있다. 원격에서 보려면 SSH 터널을 쓴다:"
-		echo "    ssh -L 3000:localhost:3000 -L 9090:localhost:9090 \$USER@<서버IP>"
+		if [ "$bind" = "127.0.0.1" ] || [ "$bind" = "localhost" ]; then
+			echo "  Grafana     http://localhost:3000  (admin / \${GRAFANA_PASSWORD:-admin})"
+			echo "  Prometheus  http://localhost:9090"
+			echo
+			echo "  모두 127.0.0.1 에만 바인드되어 있다. 원격에서 보려면 SSH 터널을 쓴다:"
+			echo "    ssh -L 3000:localhost:3000 -L 9090:localhost:9090 \$USER@<서버IP>"
+		else
+			echo "  Grafana     http://<퍼블릭IP>:3000  (admin / 지정한 비밀번호)"
+			echo
+			echo "  Grafana 만 외부에 열려 있다. Prometheus(9090)와 에이전트(9101)는"
+			echo "  계속 127.0.0.1 전용이다."
+			echo "  보안 그룹에서 TCP 3000 을 접속할 IP 대역으로 반드시 제한할 것."
+		fi
 		;;
 	down) mdc down ;;
 	ps | status) mdc ps ;;

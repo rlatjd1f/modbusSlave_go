@@ -85,7 +85,7 @@ func run() int {
 	s := &sampler{docker: docker, prefix: cfg.prefix, log: log}
 
 	// 첫 표본은 기준점만 잡는다. 차이를 낼 이전 값이 없으므로 전송하지 않는다.
-	if err := s.sample(ctx); err != nil {
+	if err := s.prime(ctx); err != nil {
 		log.Error("첫 표본 수집 실패", "err", err)
 	}
 
@@ -101,19 +101,20 @@ func run() int {
 		case <-ticker.C:
 		}
 
-		rates, err := s.rates(ctx)
+		samples, err := s.measure(ctx)
 		if err != nil {
 			log.Error("표본 수집 실패", "err", err)
 			continue
 		}
-		if len(rates) == 0 {
+		if len(samples) == 0 {
 			log.Debug("대상 컨테이너 없음", "prefix", cfg.prefix)
 			continue
 		}
 
-		exp.update(rates, s.prev)
+		exp.update(samples)
 
-		fields := buildFields(rates)
+		// Redis 에는 요청대로 아웃바운드만 싣는다.
+		fields := buildFields(samples)
 		if err := rdb.Publish(cfg.key, fields, cfg.interval*ttlFactor); err != nil {
 			fails++
 			// 연결이 끊겨도 슬레이브에는 영향이 없다. 로그만 남기고 다음 주기에 재시도한다.
@@ -124,7 +125,7 @@ func run() int {
 			log.Info("Redis 전송 복구", "직전연속실패", fails)
 			fails = 0
 		}
-		log.Debug("전송 완료", "컨테이너", len(rates), "total_mbps", totalOf(rates))
+		log.Debug("전송 완료", "컨테이너", len(samples), "total_mbps", totalOf(samples))
 
 		if cfg.once {
 			return 0
@@ -132,18 +133,27 @@ func run() int {
 	}
 }
 
-// sampler 는 직전 표본을 들고 있다가 차이로 전송률을 낸다.
+// sample 은 한 주기의 계산 결과다.
+type sample struct {
+	TxMbps  float64 // 아웃바운드 전송률
+	RxMbps  float64 // 인바운드 전송률
+	VCPU    float64 // 사용 중인 vCPU 수
+	Mem     uint64  // working set 바이트
+	TxTotal uint64  // 송신 누적 (Prometheus counter 용)
+}
+
+// sampler 는 직전 표본을 들고 있다가 차이로 전송률과 CPU 사용량을 낸다.
 type sampler struct {
 	docker *dockerapi.Client
 	prefix string
 	log    *slog.Logger
 
-	prev map[string]uint64 // 컨테이너 이름 -> 송신 누적 바이트
+	prev map[string]dockerapi.Stats
 	at   time.Time
 }
 
-// sample 은 현재 누적값을 읽어 저장한다.
-func (s *sampler) sample(ctx context.Context) error {
+// prime 은 첫 기준점을 잡는다. 차이를 낼 이전 값이 없으므로 결과를 내지 않는다.
+func (s *sampler) prime(ctx context.Context) error {
 	cur, err := s.collect(ctx)
 	if err != nil {
 		return err
@@ -152,61 +162,65 @@ func (s *sampler) sample(ctx context.Context) error {
 	return nil
 }
 
-func (s *sampler) collect(ctx context.Context) (map[string]uint64, error) {
+func (s *sampler) collect(ctx context.Context) (map[string]dockerapi.Stats, error) {
 	list, err := s.docker.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]uint64, len(list))
+	out := make(map[string]dockerapi.Stats, len(list))
 	for _, c := range list {
 		name := c.Name()
 		if !strings.HasPrefix(name, s.prefix) {
 			continue
 		}
-		_, tx, err := s.docker.NetBytes(ctx, c.ID)
+		st, err := s.docker.Stats(ctx, c.ID)
 		if err != nil {
 			// 방금 사라진 컨테이너일 수 있다. 하나 때문에 주기 전체를 버리지 않는다.
-			s.log.Debug("네트워크 통계 조회 실패", "container", name, "err", err)
+			s.log.Debug("통계 조회 실패", "container", name, "err", err)
 			continue
 		}
-		out[name] = tx
+		out[name] = st
 	}
 	return out, nil
 }
 
-// rates 는 직전 표본과의 차이로 컨테이너별 Mbps 를 낸다.
-func (s *sampler) rates(ctx context.Context) (map[string]float64, error) {
+// measure 는 직전 표본과의 차이로 컨테이너별 지표를 낸다.
+func (s *sampler) measure(ctx context.Context) (map[string]sample, error) {
 	cur, err := s.collect(ctx)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
 	elapsed := now.Sub(s.at).Seconds()
-	rates := make(map[string]float64, len(cur))
-	if s.prev != nil && elapsed > 0 {
-		for name, tx := range cur {
-			before, ok := s.prev[name]
-			if !ok || tx < before {
-				// 새로 뜬 컨테이너이거나 재시작으로 카운터가 되감겼다.
-				rates[name] = 0
-				continue
+	out := make(map[string]sample, len(cur))
+
+	for name, st := range cur {
+		m := sample{Mem: st.MemBytes, TxTotal: st.TxBytes}
+		before, ok := s.prev[name]
+		// 새로 뜬 컨테이너이거나 재시작으로 카운터가 되감기면 이번 주기는 0으로 둔다.
+		if ok && elapsed > 0 {
+			if st.TxBytes >= before.TxBytes {
+				m.TxMbps = float64(st.TxBytes-before.TxBytes) * 8 / 1e6 / elapsed
 			}
-			rates[name] = float64(tx-before) * 8 / 1e6 / elapsed
+			if st.RxBytes >= before.RxBytes {
+				m.RxMbps = float64(st.RxBytes-before.RxBytes) * 8 / 1e6 / elapsed
+			}
+			if st.CPUNanos >= before.CPUNanos {
+				// CPU 누적은 나노초다. 경과 시간으로 나누면 사용 중인 vCPU 수가 된다.
+				m.VCPU = float64(st.CPUNanos-before.CPUNanos) / 1e9 / elapsed
+			}
 		}
-	} else {
-		for name := range cur {
-			rates[name] = 0
-		}
+		out[name] = m
 	}
 	s.prev, s.at = cur, now
-	return rates, nil
+	return out, nil
 }
 
 // buildFields 는 Redis 해시에 쓸 이름/값 쌍을 만든다.
 // 필드 이름은 컨테이너 이름에서 접두사를 뗀 값(= 호스트 포트)이다.
-func buildFields(rates map[string]float64) []string {
-	names := make([]string, 0, len(rates))
-	for n := range rates {
+func buildFields(samples map[string]sample) []string {
+	names := make([]string, 0, len(samples))
+	for n := range samples {
 		names = append(names, n)
 	}
 	sort.Strings(names)
@@ -214,8 +228,8 @@ func buildFields(rates map[string]float64) []string {
 	fields := make([]string, 0, len(names)*2+4)
 	var total float64
 	for _, n := range names {
-		fields = append(fields, fieldName(n), strconv.FormatFloat(rates[n], 'f', 2, 64))
-		total += rates[n]
+		fields = append(fields, fieldName(n), strconv.FormatFloat(samples[n].TxMbps, 'f', 2, 64))
+		total += samples[n].TxMbps
 	}
 	fields = append(fields,
 		"total", strconv.FormatFloat(total, 'f', 2, 64),
@@ -234,10 +248,10 @@ func fieldName(container string) string {
 	return container
 }
 
-func totalOf(rates map[string]float64) float64 {
+func totalOf(samples map[string]sample) float64 {
 	var t float64
-	for _, v := range rates {
-		t += v
+	for _, v := range samples {
+		t += v.TxMbps
 	}
 	return t
 }

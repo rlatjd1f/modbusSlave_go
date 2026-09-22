@@ -5,23 +5,6 @@
 #   ssh -L 3000:localhost:3000 -L 9090:localhost:9090 ubuntu@<서버IP>
 
 services:
-  # 컨테이너별 CPU / 메모리 / 네트워크
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.52.1
-    restart: unless-stopped
-    privileged: true
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      # 소켓을 명시적으로 걸어준다. /var/run 디렉터리 마운트만으로는
-      # 환경에 따라 cAdvisor 가 도커 컨테이너를 인식하지 못한다.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
-    ports: ["127.0.0.1:8080:8080"]
-    mem_limit: 512m
-
   # 장비 CPU / 메모리 / NIC / 디스크
   node-exporter:
     image: prom/node-exporter:v1.8.2
@@ -50,7 +33,7 @@ services:
       - prometheus-data:/prometheus
     ports: ["127.0.0.1:9090:9090"]
     mem_limit: 1g
-    depends_on: [cadvisor, node-exporter]
+    depends_on: [node-exporter, metrics-agent]
 
   grafana:
     image: grafana/grafana:11.5.1
@@ -63,11 +46,19 @@ services:
       - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - grafana-data:/var/lib/grafana
-    ports: ["127.0.0.1:3000:3000"]
+    # 기본은 로컬 바인드. 퍼블릭 IP 로 열려면 GRAFANA_BIND=0.0.0.0 으로 띄운다.
+    # 그 경우 slave.sh 가 기본 비밀번호 사용을 막는다.
+    ports: ["${GRAFANA_BIND:-127.0.0.1}:3000:3000"]
     mem_limit: 512m
     depends_on: [prometheus]
 
-  # 아웃바운드 전송률을 3초마다 외부 Redis 해시에 기록한다.
+  # 슬레이브 컨테이너의 네트워크/CPU/메모리를 Docker API 에서 직접 읽는다.
+  # 아웃바운드 전송률은 3초마다 외부 Redis 해시에 기록하고,
+  # 같은 값을 Prometheus 형식으로도 노출한다(:9101/metrics).
+  #
+  # cAdvisor 를 쓰지 않는 이유: 호스트 cgroup 접근에 의존해 환경에 따라
+  # 컨테이너를 전혀 인식하지 못한다. Docker Desktop 과 Ubuntu 양쪽에서
+  # name 라벨이 비어 나오는 것을 확인했다.
   # Docker 소켓을 읽어야 해서 root 로 돈다. 소켓은 읽기 전용으로 마운트한다.
   metrics-agent:
     image: modbus-slave

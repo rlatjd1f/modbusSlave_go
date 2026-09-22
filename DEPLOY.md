@@ -290,11 +290,15 @@ Graviton 은 이보다 2~2.5배 높게 나올 것으로 예상한다. 실제 값
 
 | 구성요소 | 역할 | 실측 메모리 |
 |---|---|---|
-| metrics-agent | Docker API 를 읽어 Redis 적재 + Prometheus 노출 | 8 MiB |
-| cAdvisor | 컨테이너 CPU / 메모리 / 네트워크 | 24 MiB |
+| metrics-agent | 컨테이너별 네트워크 / CPU / 메모리 + Redis 적재 | 8 MiB |
 | node-exporter | 장비 CPU / 메모리 / NIC / 디스크 | 9 MiB |
 | Prometheus | 수집·저장 (30일 / 최대 10GB) | 28 MiB |
 | Grafana | 대시보드 | 80 MiB |
+
+> **cAdvisor 는 쓰지 않는다.** 호스트 cgroup 접근에 의존해 환경에 따라 컨테이너를
+> 전혀 인식하지 못한다(Docker Desktop 과 Ubuntu 양쪽에서 `name` 라벨이 비어 나오는
+> 것을 확인했다). 네트워크가 핵심 측정 대상이므로 Docker API 를 직접 읽는
+> metrics-agent 하나로 통일했다. 구성요소도 하나 줄었다.
 
 ### Redis 연동
 
@@ -332,18 +336,37 @@ REDIS_ADDR=other.host:6379 REDIS_PASSWORD=secret ./slave.sh mon up
 docker exec -it <redis> redis-cli HGETALL liz.stats.server.modbus.network.traffic
 ```
 
-### Grafana
+### Grafana 접속
 
-**절대 인터넷에 열지 말 것.** Grafana(3000), Prometheus(9090), cAdvisor(8080),
-node-exporter(9100), 에이전트(9101) 모두 `127.0.0.1` 에만 바인드했다.
-원격에서 볼 때는 SSH 터널을 쓴다.
+기본값은 **로컬 바인드**다. Grafana(3000), Prometheus(9090), node-exporter(9100),
+에이전트(9101) 모두 `127.0.0.1` 전용이라 SSH 터널로 본다.
 
 ```bash
 ssh -L 3000:localhost:3000 -L 9090:localhost:9090 ubuntu@<서버IP>
 ```
 
-브라우저에서 `http://localhost:3000`, 초기 계정은 `admin / admin` 이다.
+브라우저에서 `http://localhost:3000`, 계정은 `admin / admin` 이다.
 대시보드 `Modbus Slave 에뮬레이터` 가 자동으로 올라온다.
+
+#### 퍼블릭 IP 로 열기
+
+```bash
+GRAFANA_BIND=0.0.0.0 GRAFANA_PASSWORD='<강한 비밀번호>' ./slave.sh mon up
+```
+
+`http://<퍼블릭IP>:3000` 으로 접속한다. **Grafana 만** 열리고 Prometheus(9090)와
+에이전트(9101)는 계속 `127.0.0.1` 전용으로 남는다.
+
+두 가지 안전장치가 걸려 있다.
+
+1. `GRAFANA_BIND` 가 로컬이 아닌데 `GRAFANA_PASSWORD` 가 비었거나 `admin` 이면
+   **기동을 거부한다.** 퍼블릭 IP 에 `admin/admin` 은 그대로 탈취 경로다.
+2. 기동할 때마다 관리자 비밀번호를 **강제로 다시 설정한다.**
+   `GF_SECURITY_ADMIN_PASSWORD` 는 데이터 볼륨이 처음 만들어질 때만 적용되므로,
+   이미 볼륨이 있으면 환경변수를 바꿔도 예전 비밀번호가 그대로 살아남는다.
+
+**보안 그룹에서 TCP 3000 을 접속할 IP 대역으로 반드시 제한할 것.**
+전체 개방하면 대시보드가 인터넷에 그대로 노출된다.
 
 ### 네트워크 측정을 두 경로로 두는 이유
 
@@ -354,11 +377,6 @@ ssh -L 3000:localhost:3000 -L 9090:localhost:9090 ubuntu@<서버IP>
 
 두 값이 크게 벌어지면 브리지·NAT 구간을 의심할 근거가 된다. 단일 소스만 보면
 알 수 없다.
-
-컨테이너별 네트워크를 **cAdvisor 가 아니라 에이전트에서** 받는 것도 의도적이다.
-cAdvisor 는 호스트 cgroup 접근에 의존해 환경에 따라 컨테이너를 인식하지 못하는데,
-에이전트는 Docker API 를 직접 읽으므로 그 영향을 받지 않는다. cAdvisor 는
-CPU·메모리·디스크 쪽을 보완한다.
 
 ---
 
@@ -407,6 +425,7 @@ docker run -d -p 502:5020 modbus-slave --port 5020 --log-level debug
 ```
 인바운드 TCP 502-521  <- 마스터 쪽 CIDR 만 허용
 인바운드 TCP 22       <- 관리 접속
+인바운드 TCP 3000     <- Grafana. 퍼블릭으로 열 때만. 접속할 IP 대역으로 제한
 ```
 
 AWS 보안 그룹이든 `firewalld` 든 **소스를 마스터 대역으로 제한**한다.

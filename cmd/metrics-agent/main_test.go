@@ -23,9 +23,9 @@ func TestFieldName(t *testing.T) {
 }
 
 func TestBuildFields(t *testing.T) {
-	fields := buildFields(map[string]float64{
-		"modbus-slave-503": 0.874,
-		"modbus-slave-502": 0.862,
+	fields := buildFields(map[string]sample{
+		"modbus-slave-503": {TxMbps: 0.874},
+		"modbus-slave-502": {TxMbps: 0.862},
 	})
 	// 포트 오름차순 + total + ts
 	if len(fields) != 8 {
@@ -46,7 +46,7 @@ func TestBuildFields(t *testing.T) {
 }
 
 func TestBuildFieldsEmpty(t *testing.T) {
-	fields := buildFields(map[string]float64{})
+	fields := buildFields(map[string]sample{})
 	if len(fields) != 4 || fields[0] != "total" || fields[1] != "0.00" {
 		t.Fatalf("빈 입력 결과 %v", fields)
 	}
@@ -106,7 +106,7 @@ func TestParseFlagsRejects(t *testing.T) {
 }
 
 func TestTotalOf(t *testing.T) {
-	if got := totalOf(map[string]float64{"a": 1.5, "b": 2.5}); got != 4.0 {
+	if got := totalOf(map[string]sample{"a": {TxMbps: 1.5}, "b": {TxMbps: 2.5}}); got != 4.0 {
 		t.Fatalf("totalOf = %v, want 4", got)
 	}
 	_ = strings.TrimSpace("")

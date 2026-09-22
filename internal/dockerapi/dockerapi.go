@@ -55,27 +55,52 @@ func (c *Client) List(ctx context.Context) ([]Container, error) {
 	return out, nil
 }
 
-// statsResponse 는 /stats 응답 중 네트워크 부분만 본다.
+// statsResponse 는 /stats 응답 중 이 에이전트가 쓰는 항목만 본다.
 type statsResponse struct {
 	Networks map[string]struct {
 		RxBytes uint64 `json:"rx_bytes"`
 		TxBytes uint64 `json:"tx_bytes"`
 	} `json:"networks"`
+	CPUStats struct {
+		CPUUsage struct {
+			TotalUsage uint64 `json:"total_usage"`
+		} `json:"cpu_usage"`
+	} `json:"cpu_stats"`
+	MemoryStats struct {
+		Usage uint64            `json:"usage"`
+		Stats map[string]uint64 `json:"stats"`
+	} `json:"memory_stats"`
 }
 
-// NetBytes 는 컨테이너의 모든 인터페이스를 합한 누적 수신/송신 바이트다.
+// Stats 는 컨테이너 하나의 현재 누적값이다.
+// 전송률과 CPU 사용량은 호출부가 두 표본의 차이로 직접 계산한다.
+type Stats struct {
+	RxBytes  uint64 // 수신 누적
+	TxBytes  uint64 // 송신 누적
+	CPUNanos uint64 // CPU 누적 사용 시간(ns)
+	MemBytes uint64 // working set (usage - inactive_file)
+}
+
+// Stats 는 컨테이너의 네트워크/CPU/메모리 누적값을 한 번에 가져온다.
 // one-shot=true 로 요청해 데몬이 자체 델타를 계산하며 1초 기다리는 것을 피한다.
-// 전송률 계산은 호출부가 두 표본의 차이로 직접 한다.
-func (c *Client) NetBytes(ctx context.Context, id string) (rx, tx uint64, err error) {
+func (c *Client) Stats(ctx context.Context, id string) (Stats, error) {
 	var s statsResponse
 	if err := c.get(ctx, "/containers/"+id+"/stats?stream=false&one-shot=true", &s); err != nil {
-		return 0, 0, err
+		return Stats{}, err
 	}
+	var out Stats
 	for _, n := range s.Networks {
-		rx += n.RxBytes
-		tx += n.TxBytes
+		out.RxBytes += n.RxBytes
+		out.TxBytes += n.TxBytes
 	}
-	return rx, tx, nil
+	out.CPUNanos = s.CPUStats.CPUUsage.TotalUsage
+
+	// cAdvisor 와 같은 기준으로 맞춘다. 페이지 캐시 중 회수 가능한 부분은 뺀다.
+	out.MemBytes = s.MemoryStats.Usage
+	if inactive, ok := s.MemoryStats.Stats["inactive_file"]; ok && inactive < out.MemBytes {
+		out.MemBytes -= inactive
+	}
+	return out, nil
 }
 
 func (c *Client) get(ctx context.Context, path string, out any) error {

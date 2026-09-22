@@ -139,7 +139,7 @@
     {
       "id": 3,
       "title": "컨테이너별 인바운드",
-      "description": "cAdvisor 기준. 비어 있으면 cAdvisor 가 컨테이너를 인식하지 못하는 것이다.",
+      "description": "요청 12바이트 대 응답 259바이트라 아웃바운드의 1/3 수준이 정상이다.",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -153,8 +153,8 @@
       },
       "targets": [
         {
-          "expr": "rate(container_network_receive_bytes_total{name=~\"modbus-slave-.*\"}[1m]) * 8 / 1e6",
-          "legendFormat": "{{name}}",
+          "expr": "modbus_slave_receive_mbps",
+          "legendFormat": "{{port}}",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -210,7 +210,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(container_cpu_usage_seconds_total{name=~\"modbus-slave-.*\"}[1m]))",
+          "expr": "modbus_slave_cpu_vcpu_total",
           "legendFormat": "슬레이브 합계",
           "refId": "A",
           "datasource": {
@@ -221,7 +221,7 @@
         {
           "expr": "count(node_cpu_seconds_total{mode=\"idle\"})",
           "legendFormat": "장비 vCPU 수",
-          "refId": "A",
+          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "PROM"
@@ -276,7 +276,7 @@
       },
       "targets": [
         {
-          "expr": "sum(container_memory_working_set_bytes{name=~\"modbus-slave-.*\"})",
+          "expr": "modbus_slave_memory_bytes_total",
           "legendFormat": "슬레이브 합계",
           "refId": "A",
           "datasource": {
@@ -287,7 +287,7 @@
         {
           "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
           "legendFormat": "장비 사용량",
-          "refId": "A",
+          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "PROM"
