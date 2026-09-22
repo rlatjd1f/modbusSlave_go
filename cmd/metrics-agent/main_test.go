@@ -31,14 +31,15 @@ func TestBuildFields(t *testing.T) {
 	if len(fields) != 8 {
 		t.Fatalf("필드 수 %d, want 8: %v", len(fields), fields)
 	}
-	if fields[0] != "502" || fields[1] != "0.86" {
-		t.Errorf("첫 필드 %q=%q, want 502=0.86", fields[0], fields[1])
+	if fields[0] != "502" || fields[1] != "0.862" {
+		t.Errorf("첫 필드 %q=%q, want 502=0.862", fields[0], fields[1])
 	}
-	if fields[2] != "503" || fields[3] != "0.87" {
-		t.Errorf("둘째 필드 %q=%q, want 503=0.87", fields[2], fields[3])
+	if fields[2] != "503" || fields[3] != "0.874" {
+		t.Errorf("둘째 필드 %q=%q, want 503=0.874", fields[2], fields[3])
 	}
-	if fields[4] != "total" || fields[5] != "1.74" {
-		t.Errorf("total = %q, want 1.74", fields[5])
+	// total 은 개별 값의 합이며 항상 함께 보낸다.
+	if fields[4] != "total" || fields[5] != "1.736" {
+		t.Errorf("total = %q, want 1.736", fields[5])
 	}
 	if fields[6] != "ts" || fields[7] == "" {
 		t.Errorf("ts 누락: %v", fields[6:])
@@ -47,7 +48,7 @@ func TestBuildFields(t *testing.T) {
 
 func TestBuildFieldsEmpty(t *testing.T) {
 	fields := buildFields(map[string]sample{})
-	if len(fields) != 4 || fields[0] != "total" || fields[1] != "0.00" {
+	if len(fields) != 4 || fields[0] != "total" || fields[1] != "0.000" {
 		t.Fatalf("빈 입력 결과 %v", fields)
 	}
 }

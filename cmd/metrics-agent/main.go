@@ -229,8 +229,12 @@ func (s *sampler) measure(ctx context.Context) (map[string]sample, error) {
 	return out, nil
 }
 
+// redisDecimals 는 Redis 에 쓰는 Mbps 값의 소수 자릿수다.
+const redisDecimals = 3
+
 // buildFields 는 Redis 해시에 쓸 이름/값 쌍을 만든다.
-// 필드 이름은 컨테이너 이름에서 접두사를 뗀 값(= 호스트 포트)이다.
+// 필드 이름은 컨테이너 이름에서 접두사를 뗀 값(= 호스트 포트)이고,
+// 값은 아웃바운드 Mbps 다. 여기에 전체 합계 total 과 갱신 시각 ts 를 더한다.
 func buildFields(samples map[string]sample) []string {
 	names := make([]string, 0, len(samples))
 	for n := range samples {
@@ -241,11 +245,12 @@ func buildFields(samples map[string]sample) []string {
 	fields := make([]string, 0, len(names)*2+4)
 	var total float64
 	for _, n := range names {
-		fields = append(fields, fieldName(n), strconv.FormatFloat(samples[n].TxMbps, 'f', 2, 64))
+		fields = append(fields, fieldName(n),
+			strconv.FormatFloat(samples[n].TxMbps, 'f', redisDecimals, 64))
 		total += samples[n].TxMbps
 	}
 	fields = append(fields,
-		"total", strconv.FormatFloat(total, 'f', 2, 64),
+		"total", strconv.FormatFloat(total, 'f', redisDecimals, 64),
 		"ts", strconv.FormatInt(time.Now().Unix(), 10))
 	return fields
 }

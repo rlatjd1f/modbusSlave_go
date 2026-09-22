@@ -309,12 +309,12 @@ Graviton 은 이보다 2~2.5배 높게 나올 것으로 예상한다. 실제 값
 아웃바운드 전송률을 **3초마다** 해시 하나에 쓴다.
 
 ```
-HSET liz.stats.server.modbus.network.traffic 502 0.86 503 0.87 ... total 41.20 ts 1758500000
+HSET liz.stats.server.modbus.network.traffic 502 0.416 503 0.416 ... total 41.203 ts 1758500000
 EXPIRE liz.stats.server.modbus.network.traffic 9
 ```
 
-- 필드 이름은 **호스트 포트**, 값은 Mbps 소수점 2자리
-- `total` — 전체 통합 아웃바운드
+- 필드 이름은 **호스트 포트**, 값은 **아웃바운드 Mbps 소수점 3자리**
+- `total` — 전체 통합 아웃바운드. 개별 값과 항상 함께 보낸다
 - `ts` — 갱신 시각(unix). 소비하는 쪽이 신선도를 직접 판단할 수 있다
 - **TTL 9초** (주기 3초 x 3). 에이전트가 죽으면 키가 사라지므로
   소비자가 낡은 값을 실시간 값으로 오인하지 않는다
@@ -348,9 +348,24 @@ REDIS_ADDR=172.31.x.x:6379 ./slave.sh mon up
 **Redis 가 끊겨도 슬레이브에는 영향이 없다.** 에이전트는 로그만 남기고 다음
 주기에 재시도하며, 복구되면 `Redis 전송 복구` 를 남긴다.
 
+Redis 서버에서 보기 좋게 확인하려면:
+
 ```bash
-docker exec -it <redis> redis-cli HGETALL liz.stats.server.modbus.network.traffic
+redis-cli -p 5000 -a '<비밀번호>' --no-auth-warning HGETALL liz.stats.server.modbus.network.traffic | paste - - | awk -v now=$(date +%s) '$1~/^[0-9]+$/{p[++n]=$1;v[$1]=$2;if($2+0==0)idle++;next} $1=="total"{t=$2} $1=="ts"{ts=$2} END{for(i=1;i<n;i++)for(j=i+1;j<=n;j++)if(p[i]+0>p[j]+0){x=p[i];p[i]=p[j];p[j]=x} printf "  %-6s %10s\n  %s\n","포트","Mbps","--------------------"; for(i=1;i<=n;i++)printf "  %-6s %10.3f%s\n",p[i],v[p[i]],(v[p[i]]+0==0?"   <- 유휴":""); printf "  %s\n  %-6s %10.3f\n\n","--------------------","합계",t; printf "  슬레이브 %d대 · 유휴 %d대 · %d초 전 갱신\n",n,idle,now-ts}'
 ```
+
+```
+  포트         Mbps
+  --------------------
+  502         0.416
+  506         0.000   <- 유휴
+  --------------------
+  합계        1.664
+
+  슬레이브 5대 · 유휴 1대 · 2초 전 갱신
+```
+
+`systime()` 대신 `date` 값을 넘기는 이유는 mawk 처럼 그 함수가 없는 awk 가 있기 때문이다.
 
 ### 콜렉터 이름 붙이기
 
