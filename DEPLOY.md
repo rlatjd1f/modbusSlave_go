@@ -206,6 +206,10 @@ make load TARGETS=$TARGETS CONNS=50 SECS=60
 ./slave.sh top 5      # 5초 간격
 ```
 
+`top` 과 `net` 은 metrics-agent 가 떠 있으면 **그 값을 쓴다**(`./slave.sh mon up`).
+Grafana 대시보드와 같은 소스라 두 화면의 숫자가 어긋나지 않는다.
+에이전트가 없으면 `docker stats` 로 물러서는데, 그 경우 화면에 소스가 표시된다.
+
 `top` 은 부하를 거는 동안 띄워 두고 보는 용도다.
 
 ```
@@ -445,6 +449,35 @@ AWS 보안 그룹이든 `firewalld` 든 **소스를 마스터 대역으로 제�
 ---
 
 ## 12. 트러블슈팅
+
+### `slave.sh top` 과 Grafana 값이 다르다
+
+두 가지 원인이 있다.
+
+**1. 이미지가 낡았다.** `git pull` 만으로는 이미지가 갱신되지 않는다.
+예전 빌드의 metrics-agent 는 아웃바운드만 내보내므로, Grafana 의 인바운드·CPU·메모리
+패널이 비고 `top` 과도 값이 어긋난다.
+
+```bash
+./slave.sh build && ./slave.sh mon up
+```
+
+`up` 계열은 이제 매번 캐시 빌드를 돌려 이 상황을 막는다. 변경이 없으면 몇 초면 끝난다.
+
+**2. `docker stats` 는 값이 거칠다.** NET I/O 가 사람이 읽기 좋게 유효숫자
+3자리로 반올림된 문자열이라(`266MB`), 누적이 커질수록 눈금이 거칠어진다.
+누적 266MB 면 눈금이 1MB 이고, 3초 창에서는 **2.67 Mbps 단위로 양자화**된다.
+실제 1 Mbps 인 값이 `0.00` 또는 `2.67` 로만 찍히고 합계는 부풀려진다.
+
+똑같은 부하를 받는 컨테이너 4대를 두 방식으로 잰 결과다.
+
+```
+docker stats : 0.69 / 1.04 / 0.87 / 0.87  합계 3.47 Mbps   <- 같아야 하는데 제각각
+metrics-agent: 0.52 / 0.52 / 0.52 / 0.52  합계 2.08 Mbps
+```
+
+에이전트는 Docker API 의 원시 바이트 카운터를 읽으므로 이 문제가 없다.
+`./slave.sh mon up` 이 떠 있으면 `top`/`net` 이 자동으로 그쪽을 쓴다.
 
 ### 이미지 빌드 중 `network is unreachable` (IPv6)
 

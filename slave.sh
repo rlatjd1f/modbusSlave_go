@@ -82,22 +82,12 @@ else
 	SUDO="sudo"
 fi
 
+# 이미지 존재 여부만 보면 git pull 로 소스가 바뀌어도 낡은 이미지가 그대로 쓰인다.
+# 실제로 metrics-agent 가 예전 빌드로 남아 새 메트릭이 누락되는 일이 있었다.
+# 매번 빌드하되 Docker 캐시가 있으므로 변경이 없으면 몇 초면 끝난다.
 ensure_image() {
-	if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-		echo "==> 이미지 '$IMAGE' 가 없어 빌드합니다"
-		docker build -t "$IMAGE" .
-	fi
-}
-
-# 이미지 존재만으로는 부족하다. git pull 로 소스가 바뀌어도 기존 이미지는 그대로
-# 남아, metrics-agent 가 없던 시절의 이미지로 mon up 을 시도하면 실패한다.
-# 필요한 바이너리가 실제로 들어 있는지 확인하고 없으면 다시 빌드한다.
-ensure_binary() {
-	ensure_image
-	if ! docker run --rm --entrypoint "$1" "$IMAGE" --help >/dev/null 2>&1; then
-		echo "==> 이미지에 $1 이(가) 없어 다시 빌드합니다"
-		docker build -t "$IMAGE" .
-	fi
+	echo "==> 이미지 확인 (변경 없으면 캐시로 즉시 끝난다)"
+	docker build -t "$IMAGE" . >/dev/null
 }
 
 # healthy 개수가 total 이 될 때까지 최대 60초 기다린다.
@@ -135,52 +125,54 @@ cmd_ps() {
 	echo "==> healthy: $(dc ps --format '{{.Status}}' | grep -c healthy || true) / $(dc ps --format '{{.Name}}' | grep -c . || true)"
 }
 
-# 누적 NetIO 를 두 번 재서 아웃바운드(TX) 전송률을 Mbps 로 환산한다.
-# docker stats 의 NET I/O 는 컨테이너 시작 이후 누적값이라 그대로는 전송률이 아니다.
-# 슬레이브는 요청 12바이트를 받고 응답 259바이트를 보내므로 아웃바운드가 지배적이다.
+# 아웃바운드 전송률을 1회 출력한다.
+# metrics-agent 가 떠 있으면 그 값을, 없으면 docker stats 두 표본의 차이를 쓴다.
 cmd_net() {
 	need_compose
 	INT="${1:-5}"
 	is_num "$INT" && [ "$INT" -ge 1 ] || die "샘플 시간은 1 이상의 정수여야 합니다: '$INT'"
 
-	names=$(dc ps --format '{{.Name}}')
-	[ -n "$names" ] || die "실행 중인 컨테이너가 없습니다."
+	if snap=$(agent_snapshot) && [ -n "$snap" ]; then
+		echo "==> 아웃바운드 전송률 (metrics-agent)"
+		printf '%s\n' "$snap" | agent_rows | awk '
+		{ printf "  %-26s %8.2f Mbps\n", $1, $5; sum += $5 }
+		END { printf "  %-28s %8.2f Mbps\n", "합계", sum }'
+	else
+		echo "==> 아웃바운드 전송률 (${INT}초 샘플, docker stats)"
+		echo "    주의: docker stats 는 유효숫자 3자리라 값이 거칠다. ./slave.sh mon up 을 띄우면 정확해진다." >&2
+		names=$(dc ps --format '{{.Name}}')
+		[ -n "$names" ] || die "실행 중인 컨테이너가 없습니다."
+		# shellcheck disable=SC2086
+		a=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}}' $names)
+		sleep "$INT"
+		# shellcheck disable=SC2086
+		b=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}}' $names)
+		printf '%s\n%s\n' "$a" "$b" | awk -v n="$(echo "$a" | wc -l)" -v t="$INT" '
+		function tob(s,   v, u) {
+			v = s + 0; u = s; sub(/^[0-9.]+/, "", u)
+			if (u == "kB") return v * 1000
+			if (u == "MB") return v * 1000000
+			if (u == "GB") return v * 1000000000
+			return v
+		}
+		NR <= n { t0[$1] = tob($4); next }
+		{
+			mbps = (tob($4) - t0[$1]) / t * 8 / 1000000
+			printf "  %-26s %8.2f Mbps\n", $1, mbps
+			sum += mbps
+		}
+		END { printf "  %-28s %8.2f Mbps\n", "합계", sum }'
+	fi
 
-	echo "==> 아웃바운드 전송률 (${INT}초 샘플)"
-	# shellcheck disable=SC2086
-	a=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}}' $names)
-	sleep "$INT"
-	# shellcheck disable=SC2086
-	b=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}}' $names)
-
-	printf '%s\n%s\n' "$a" "$b" | awk -v n="$(echo "$a" | wc -l)" -v t="$INT" '
-	function tob(s,   v, u) {
-		v = s + 0; u = s; sub(/^[0-9.]+/, "", u)
-		if (u == "kB") return v * 1000
-		if (u == "MB") return v * 1000000
-		if (u == "GB") return v * 1000000000
-		return v
-	}
-	NR <= n { t0[$1] = tob($4); next }
-	{
-		# NetIO 는 "수신 / 송신" 이므로 $4 가 아웃바운드다.
-		mbps = (tob($4) - t0[$1]) / t * 8 / 1000000
-		printf "  %-26s %8.2f Mbps\n", $1, mbps
-		sum += mbps
-	}
-	END { printf "  %-28s %8.2f Mbps\n", "합계", sum }'
-
-	# 이미지가 scratch 라 docker exec 로는 ss 를 쓸 수 없다.
-	# 호스트의 ss 를 컨테이너 네트워크 네임스페이스에 넣어 실행한다.
 	command -v nsenter >/dev/null 2>&1 || return 0
-	if ! $SUDO -n true >/dev/null 2>&1 && [ -n "$SUDO" ]; then
+	if [ -n "$SUDO" ] && ! $SUDO -n true >/dev/null 2>&1; then
 		echo "==> 커넥션 수는 건너뜁니다 (sudo 사용 불가)"
 		return 0
 	fi
 
 	echo "==> 확립된 커넥션 수"
 	total=0
-	for c in $names; do
+	for c in $(dc ps --format '{{.Name}}'); do
 		pid=$(docker inspect -f '{{.State.Pid}}' "$c" 2>/dev/null || echo "")
 		[ -n "$pid" ] || continue
 		cnt=$($SUDO nsenter -t "$pid" -n ss -tn state established 2>/dev/null | tail -n +2 | wc -l | tr -d ' ' || echo 0)
@@ -191,8 +183,10 @@ cmd_net() {
 }
 
 # CPU / 메모리 / 인바운드 / 아웃바운드를 한 화면에서 주기적으로 갱신한다.
-# docker stats 의 NET I/O 가 누적값이라 매 주기 두 번 재서 차이를 Mbps 로 환산한다.
-# 누적 송수신량은 두 번째 표본의 절대값을 그대로 합산한다(컨테이너 기동 이후 총량).
+#
+# metrics-agent 가 떠 있으면 그 값을 쓴다. Grafana 대시보드와 같은 소스라
+# 두 화면의 숫자가 어긋나지 않는다. 에이전트가 없으면 docker stats 로 물러서는데,
+# 그 경우 값이 거칠다는 점을 화면에 표시한다.
 cmd_top() {
 	need_compose
 	INT="${1:-3}"
@@ -201,60 +195,100 @@ cmd_top() {
 	trap 'printf "\n"; exit 0' INT TERM
 
 	while :; do
-		names=$(dc ps --format '{{.Name}}' 2>/dev/null || true)
-		if [ -z "$names" ]; then
-			echo "실행 중인 컨테이너가 없습니다."
+		src="metrics-agent"
+		if snap=$(agent_snapshot) && [ -n "$snap" ]; then
+			rows=$(printf '%s\n' "$snap" | agent_rows)
+		else
+			src="docker stats (값 거칢)"
+			names=$(dc ps --format '{{.Name}}' 2>/dev/null || true)
+			if [ -z "$names" ]; then
+				echo "실행 중인 컨테이너가 없습니다."
+				sleep "$INT"
+				continue
+			fi
+			# shellcheck disable=SC2086
+			a=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}}' $names 2>/dev/null || true)
 			sleep "$INT"
-			continue
+			# shellcheck disable=SC2086
+			b=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}} {{.CPUPerc}} {{.MemUsage}}' $names 2>/dev/null || true)
+			[ -n "$a" ] && [ -n "$b" ] || continue
+			rows=$(printf '%s\n%s\n' "$a" "$b" | awk -v n="$(echo "$a" | wc -l)" -v t="$INT" '
+			function tob(s,   v, u) {
+				v = s + 0; u = s; sub(/^[0-9.]+/, "", u)
+				if (u == "kB") return v * 1000
+				if (u == "MB") return v * 1000000
+				if (u == "GB") return v * 1000000000
+				return v
+			}
+			NR <= n { r0[$1] = tob($2); t0[$1] = tob($4); next }
+			{
+				split($6, m, "MiB")
+				printf "%s %.4f %.0f %.4f %.4f\n", $1, $5 + 0, m[1] * 1048576,
+					(tob($2) - r0[$1]) / t * 8 / 1e6, (tob($4) - t0[$1]) / t * 8 / 1e6
+			}')
 		fi
-		# shellcheck disable=SC2086
-		a=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}}' $names 2>/dev/null || true)
-		sleep "$INT"
-		# shellcheck disable=SC2086
-		b=$(docker stats --no-stream --format '{{.Name}} {{.NetIO}} {{.CPUPerc}} {{.MemUsage}}' $names 2>/dev/null || true)
-		[ -n "$a" ] && [ -n "$b" ] || continue
 
-		out=$(printf '%s\n%s\n' "$a" "$b" | awk -v n="$(echo "$a" | wc -l)" -v t="$INT" '
-		function tob(s,   v, u) {
-			v = s + 0; u = s; sub(/^[0-9.]+/, "", u)
-			if (u == "kB") return v * 1000
-			if (u == "MB") return v * 1000000
-			if (u == "GB") return v * 1000000000
-			return v
-		}
-		function vol(x) {
-			if (x >= 1000000000) return sprintf("%.2f GB", x / 1000000000)
-			if (x >= 1000000)    return sprintf("%.1f MB", x / 1000000)
-			if (x >= 1000)       return sprintf("%.1f kB", x / 1000)
-			return sprintf("%d B", x)
-		}
-		NR <= n { r0[$1] = tob($2); t0[$1] = tob($4); next }
+		out=$(printf '%s\n' "$rows" | awk '
+		function mib(b) { return b / 1048576 }
 		{
-			# $2 수신 누적, $4 송신 누적, $5 CPU%, $6 메모리
-			rxbps = (tob($2) - r0[$1]) / t * 8 / 1000000
-			txbps = (tob($4) - t0[$1]) / t * 8 / 1000000
-			cpu = $5 + 0
-			printf "  %-26s %7.2f%% %11s %8.2f Mbps %8.2f Mbps\n", $1, cpu, $6, rxbps, txbps
-			scpu += cpu; srx += rxbps; stx += txbps
-			crx += tob($2); ctx += tob($4)
-			split($6, m, "MiB"); smem += m[1]
+			printf "  %-26s %7.2f%% %9.2fMiB %8.2f Mbps %8.2f Mbps\n", $1, $2, mib($3), $4, $5
+			scpu += $2; smem += $3; srx += $4; stx += $5
 		}
 		END {
 			printf "  %s\n", "--------------------------------------------------------------------------"
-			printf "  %-28s %7.2f%% %8.1fMiB %8.2f Mbps %8.2f Mbps\n", "합계", scpu, smem, srx, stx
-			printf "  vCPU 환산 %.3f   |   통합 %.2f Mbps   |   누적 수신 %s / 송신 %s\n", \
-				scpu / 100, srx + stx, vol(crx), vol(ctx)
+			printf "  %-28s %7.2f%% %9.2fMiB %8.2f Mbps %8.2f Mbps\n", "합계", scpu, mib(smem), srx, stx
+			printf "  vCPU 환산 %.3f   |   통합 %.2f Mbps\n", scpu / 100, srx + stx
 		}')
 
 		clear 2>/dev/null || printf '\033[H\033[2J'
-		printf '  %-26s %8s %11s %13s %13s\n' "CONTAINER" "CPU" "MEM" "IN" "OUT"
+		printf '  %-26s %8s %12s %13s %13s\n' "CONTAINER" "CPU" "MEM" "IN" "OUT"
 		printf '  %s\n' "--------------------------------------------------------------------------"
 		printf '%s\n' "$out"
-		printf '  %s   갱신 %ss   Ctrl+C 로 종료\n' "$(date '+%H:%M:%S')" "$INT"
+		printf '  %s   갱신 %ss   소스 %s   Ctrl+C 로 종료\n' "$(date '+%H:%M:%S')" "$INT" "$src"
+		[ "$src" = "metrics-agent" ] && sleep "$INT"
 	done
 }
 
 MONFILE="monitoring/docker-compose.yml"
+AGENT_URL="${AGENT_URL:-http://127.0.0.1:9101/metrics}"
+
+# metrics-agent 가 떠 있으면 그 값을 쓴다.
+#
+# docker stats 의 NET I/O 는 사람이 읽기 좋게 유효숫자 3자리로 반올림된 문자열이라
+# ("266MB"), 누적이 커질수록 눈금이 거칠어진다. 누적 266MB 면 눈금이 1MB 이고
+# 3초 창에서는 2.67 Mbps 단위로 양자화되어, 실제 1 Mbps 인 값이 0 또는 2.67 로만
+# 찍힌다. 에이전트는 Docker API 의 원시 바이트 카운터를 읽으므로 그 문제가 없고,
+# Grafana 대시보드와도 같은 값을 보게 된다.
+agent_snapshot() {
+	command -v curl >/dev/null 2>&1 || return 1
+	curl -fsS --max-time 2 "$AGENT_URL" 2>/dev/null
+}
+
+# 에이전트 메트릭 텍스트를 "이름 CPU MEM IN OUT" 행으로 바꾼다.
+agent_rows() {
+	awk '
+	function cname(s,   r) {
+		if (!match(s, /container="[^"]+"/)) return ""
+		r = substr(s, RSTART + 11, RLENGTH - 12)
+		return r
+	}
+	function val(s) { return substr(s, index(s, "} ") + 2) + 0 }
+	/^modbus_slave_transmit_mbps\{/ { c = cname($0); if (c != "") { tx[c] = val($0); seen[c] = 1 } }
+	/^modbus_slave_receive_mbps\{/  { c = cname($0); if (c != "") { rx[c] = val($0); seen[c] = 1 } }
+	/^modbus_slave_cpu_vcpu\{/      { c = cname($0); if (c != "") { cpu[c] = val($0); seen[c] = 1 } }
+	/^modbus_slave_memory_bytes\{/  { c = cname($0); if (c != "") { mem[c] = val($0); seen[c] = 1 } }
+	END {
+		n = 0
+		for (c in seen) names[++n] = c
+		for (i = 1; i < n; i++)
+			for (j = i + 1; j <= n; j++)
+				if (names[i] > names[j]) { t = names[i]; names[i] = names[j]; names[j] = t }
+		for (i = 1; i <= n; i++) {
+			c = names[i]
+			printf "%s %.4f %.0f %.4f %.4f\n", c, cpu[c] * 100, mem[c], rx[c], tx[c]
+		}
+	}'
+}
 
 # 모니터링 스택은 슬레이브와 별도 compose 로 둔다.
 # 여기를 재시작해도 슬레이브 컨테이너가 흔들리지 않아야 한다.
@@ -266,7 +300,7 @@ cmd_mon() {
 
 	case "$sub" in
 	up)
-		ensure_binary /metrics-agent
+		ensure_image
 		bind="${GRAFANA_BIND:-0.0.0.0}"
 		echo "==> 모니터링 스택 기동 (Grafana 바인드: $bind)"
 		mdc up -d --remove-orphans
